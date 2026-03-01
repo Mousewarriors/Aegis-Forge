@@ -41,6 +41,7 @@ class DockerOrchestrator:
                 volumes=volumes,
                 # Timeout / Auto-removal behavior handled by orchestration loop
             )
+            print(f"📦 [DOCKER] Created container: {unique_name} (ID: {container.short_id})")
             return container
         except Exception as e:
             print(f"Error creating container: {e}")
@@ -52,6 +53,7 @@ class DockerOrchestrator:
         """
         try:
             container = self.client.containers.get(container_id)
+            print(f"🚀 [DOCKER] Executing in {container_id[:8]}: {payload[:50]}...")
             exec_result = container.exec_run([shell, "-c", payload])
             return {
                 "exit_code": exec_result.exit_code,
@@ -65,6 +67,7 @@ class DockerOrchestrator:
             container = self.client.containers.get(container_id)
             container.stop()
             container.remove()
+            print(f"🧹 [DOCKER] Cleaned up container: {container_id[:8]}")
             return True
         except Exception as e:
             print(f"Error cleaning up: {e}")

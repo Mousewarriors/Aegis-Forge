@@ -1,0 +1,56 @@
+#!/usr/bin/env bpftrace
+/*
+ * aegis.bt — SysWatch Kernel Probe (WSL2 + Linux compatible)
+ *
+ * Requires: /sys/kernel/debug mounted into the container.
+ * WSL2 note: syscall tracepoints use openat2 not openat.
+ *
+ * Output format (one event per line, parsed by ebpf_monitor.py):
+ *   EVENT_TYPE|process_name|target
+ *
+ * Usage:
+ *   docker run --privileged --pid=host \
+ *     -v /sys/kernel/debug:/sys/kernel/debug \
+ *     -v /probes:/probes:ro \
+ *     -e AEGIS_TARGET_PID=<pid> \
+ *     --entrypoint /usr/bin/bpftrace \
+ *     quay.io/iovisor/bpftrace:latest /probes/aegis.bt
+ */
+
+BEGIN
+{
+    printf("[SysWatch] Aegis probe loaded. Watching PID namespace...\n");
+}
+
+/* ─── File Opens (WSL2: openat2) ─────────────────────────────────────────── */
+tracepoint:syscalls:sys_enter_openat2
+/pid == (uint64)$AEGIS_TARGET_PID || ppid == (uint64)$AEGIS_TARGET_PID/
+{
+    printf("OPEN|%s|%s\n", comm, str(args->filename));
+}
+
+/* ─── File Opens (Fallback: openat, older kernels) ───────────────────────── */
+tracepoint:syscalls:sys_enter_openat
+/pid == (uint64)$AEGIS_TARGET_PID || ppid == (uint64)$AEGIS_TARGET_PID/
+{
+    printf("OPEN|%s|%s\n", comm, str(args->filename));
+}
+
+/* ─── Process Executions ─────────────────────────────────────────────────── */
+tracepoint:syscalls:sys_enter_execve
+/pid == (uint64)$AEGIS_TARGET_PID || ppid == (uint64)$AEGIS_TARGET_PID/
+{
+    printf("EXEC|%s|%s\n", comm, str(args->filename));
+}
+
+/* ─── Network Connection Attempts ────────────────────────────────────────── */
+tracepoint:syscalls:sys_enter_connect
+/pid == (uint64)$AEGIS_TARGET_PID || ppid == (uint64)$AEGIS_TARGET_PID/
+{
+    printf("NET_CONNECT|%s|connect_attempt\n", comm);
+}
+
+END
+{
+    printf("[SysWatch] Probe detached.\n");
+}

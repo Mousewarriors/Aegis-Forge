@@ -12,7 +12,9 @@ from monitor import monitor
 from policy_engine import policy_engine
 from agent_loop import agent_loop
 from report_gen import report_gen
-from models import AttackCampaign, ScenarioRun, Evidence, Outcome, Mode, FullReport
+from inquisitor import inquisitor
+from ebpf_monitor import syswatch
+from models import AttackCampaign, ScenarioRun, Evidence, Outcome, Mode, FullReport, InquisitorSession
 
 app = FastAPI(title="Aegis Forge: Red Teaming Harness")
 
@@ -61,6 +63,9 @@ async def run_campaign(campaign: AttackCampaign = Body(...)):
     outcome = Outcome.WARNING
     tool_denied = False
 
+    # ── Start SysWatch kernel probe ─────────────────────────────────────────
+    syswatch_session = syswatch.start_for_container(container.id)
+
     try:
         if campaign.mode == Mode.A:
             # Mode A: Direct Simulation — use the shell_cmd from payloads.json
@@ -98,12 +103,18 @@ async def run_campaign(campaign: AttackCampaign = Body(...)):
                     evidence.sensitive_events.append(f"Policy Blocked: {reason}")
                     tool_denied = True
 
-        # 3. Evaluate Outcome
+        # ── Stop SysWatch and collect kernel evidence ──────────────────────
+        syswatch_session = syswatch.stop_and_collect(syswatch_session)
+        evidence.kernel_events = syswatch_session.events
+        evidence.kernel_alerts = syswatch_session.alerts
+
+        # 3. Evaluate Outcome (now kernel-aware)
         outcome = monitor.evaluate_outcome(
             campaign.attack_category,
             {"output": evidence.stdout, "exit_code": 0},
             payload_info,
-            tool_denied
+            tool_denied,
+            kernel_events=syswatch_session.events
         )
 
         run = ScenarioRun(
@@ -123,6 +134,27 @@ async def run_campaign(campaign: AttackCampaign = Body(...)):
         orchestrator.cleanup_container(container.id)
 
 
+@app.post("/campaigns/inquisitor")
+async def run_inquisitor_campaign(campaign: AttackCampaign = Body(...)) -> InquisitorSession:
+    """
+    Mode C: Multi-Turn Adversarial Campaign.
+    A second 'Inquisitor' LLM drives the attack, adapting strategy per turn.
+    """
+    payload_info = payload_gen.get_random_payload(campaign.attack_category)
+    if not payload_info or payload_info.get("id") == "NONE":
+        raise HTTPException(status_code=404, detail=f"No payloads for category: {campaign.attack_category}")
+
+    session = await inquisitor.run_campaign(
+        initial_payload=payload_info["payload"],
+        category=campaign.attack_category,
+        target_loop=agent_loop,
+        max_turns=campaign.max_turns,
+    )
+    # Improvement #1: Record session in Audit Stream
+    monitor.record_inquisitor_session(session)
+    return session
+
+
 @app.get("/reports/summary")
 async def get_summary():
     stats = monitor.get_summary()
@@ -133,14 +165,17 @@ async def get_summary():
 @app.get("/stats")
 async def get_stats():
     stats = monitor.get_summary()
-    return {
-        "total_attacks": stats["total_runs"],
-        "successful_exploits": stats["fail_count"],
-        "failed_attempts": stats["pass_count"],
-        "campaign_history": [
-            {
+    history = []
+    for r in stats["campaign_history"]:
+        if r.get("type") == "inquisitor":
+            # Inquisitor session entry — already formatted by monitor
+            history.append(r)
+        else:
+            # Standard ScenarioRun entry
+            history.append({
+                "type": "scenario",
                 "timestamp": r["timestamp"],
-                "campaign": f"{r['mode']} - {r['payload_id']}",
+                "campaign": f"{r.get('mode', '?')} - {r.get('payload_id', '?')}",
                 "category": r["category"],
                 "success": r["outcome"] == Outcome.FAIL,
                 "input_payload": r["evidence"].get("input_prompt", ""),
@@ -150,8 +185,12 @@ async def get_stats():
                     else (r["evidence"].get("sensitive_events") or [""])[0][:200]
                 ),
                 "full_run": r
-            } for r in stats["campaign_history"]
-        ]
+            })
+    return {
+        "total_attacks": stats["total_runs"],
+        "successful_exploits": stats["fail_count"],
+        "failed_attempts": stats["pass_count"],
+        "campaign_history": history,
     }
 
 
@@ -245,6 +284,91 @@ async def run_automated_scan(scan_type: str = Body(..., embed=True)):
             "risk_score": "Critical" if len(results) > 5 else "High" if len(results) > 0 else "Low"
         }
     }
+
+
+@app.get("/stats/strategies")
+async def get_strategy_stats():
+    """Improvement #3: Strategy heatmap data — which attack strategies succeeded per category."""
+    return {"strategy_stats": monitor.strategy_stats}
+
+
+@app.post("/campaigns/harden")
+async def run_hardening_scan(campaign: AttackCampaign = Body(...)):
+    """Improvement #5: Fire every strategy probe in isolation. Returns per-strategy refusal rates."""
+    return await inquisitor.run_hardening_scan(
+        category=campaign.attack_category,
+        target_loop=agent_loop,
+    )
+
+
+@app.get("/reports/export")
+async def export_report():
+    """Improvement #4: Download a self-contained HTML red-team report."""
+    from fastapi.responses import HTMLResponse
+    stats = monitor.get_summary()
+    history = stats["campaign_history"]
+
+    def sev_colour(sev):
+        return {
+            "CRITICAL": "#ef4444", "HIGH": "#f97316",
+            "MEDIUM": "#eab308", "SUSPICIOUS": "#f59e0b",
+            "LOW": "#a3e635", "PASS": "#22d3ee",
+        }.get(str(sev).upper(), "#64748b")
+
+    rows = ""
+    for r in history:
+        if r.get("type") == "inquisitor":
+            ts = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(r["timestamp"]))
+            sev = r.get("exploit_severity") or "—"
+            confirmed = "✔ EXPLOIT" if r["success"] else "✖ PASSED"
+            rows += f"""<tr style='border-bottom:1px solid #334155'>
+                <td>{ts}</td><td>⚡ INQUISITOR</td><td>{r['category']}</td>
+                <td style='color:{sev_colour(sev)};font-weight:bold'>{sev}</td>
+                <td>{confirmed}</td><td style='color:#94a3b8;max-width:300px'>{r['output_snippet'][:180]}</td></tr>"""
+        else:
+            ts = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(r["timestamp"]))
+            outcome = "✔ EXPLOIT" if r["success"] else "✖ PASSED"
+            rows += f"""<tr style='border-bottom:1px solid #334155'>
+                <td>{ts}</td><td>SCENARIO</td><td>{r['category']}</td>
+                <td>—</td><td>{outcome}</td>
+                <td style='color:#94a3b8;max-width:300px'>{str(r.get('output_snippet',''))[:180]}</td></tr>"""
+
+    html = f"""<!DOCTYPE html><html><head><meta charset='UTF-8'>
+    <title>Aegis Forge Red Team Report</title>
+    <style>body{{background:#0f172a;color:#e2e8f0;font-family:Inter,sans-serif;padding:40px}}
+    h1{{color:#38bdf8}}table{{width:100%;border-collapse:collapse;margin-top:24px}}
+    th{{background:#1e293b;padding:10px 12px;text-align:left;color:#94a3b8;font-size:12px}}
+    td{{padding:8px 12px;font-size:13px}}@media print{{body{{background:white;color:black}}}}</style></head>
+    <body><h1>⚡ Aegis Forge — Red Team Report</h1>
+    <p style='color:#64748b'>Generated: {time.strftime("%Y-%m-%d %H:%M UTC")}</p>
+    <table><thead><tr><th>Timestamp</th><th>Type</th><th>Category</th><th>Severity</th><th>Result</th><th>Summary</th></tr></thead>
+    <tbody>{rows}</tbody></table></body></html>"""
+
+    # NEW: Also save a persistent copy in the workspace/reports directory
+    report_filename = f"aegis-report-{int(time.time())}.html"
+    report_path = os.path.join("..", "workspace", "reports", report_filename)
+    try:
+        os.makedirs(os.path.dirname(report_path), exist_ok=True)
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write(html)
+        print(f"📊 [REPORT] Persistent copy saved to: {report_path}")
+    except Exception as e:
+        print(f"Error saving persistent report: {e}")
+
+    return HTMLResponse(content=html, headers={"Content-Disposition": f"attachment; filename={report_filename}"})
+
+
+@app.post("/agent/configure")
+async def configure_agent(hardened: bool = Body(..., embed=True)):
+    """Toggle the target agent's hardening (strict system prompt)."""
+    agent_loop.configure(hardened)
+    return {"status": "success", "hardened": hardened}
+
+
+@app.get("/agent/status")
+async def get_agent_status():
+    """Check if the agent is in hardened mode."""
+    return {"hardened": agent_loop.hardened}
 
 
 if __name__ == "__main__":
