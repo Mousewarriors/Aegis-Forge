@@ -8,8 +8,8 @@ providers:
       method: 'POST'
       body:
         attack_category: 'prompt_injection'
-        mode: 'B'
-        target_agent: 'REAL_AGENT'
+        mode: 'REAL_AGENT'
+        target_agent_type: 'REAL_AGENT'
       headers:
         'Content-Type': 'application/json'
 

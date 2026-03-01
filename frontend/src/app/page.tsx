@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { Terminal, Shield, AlertTriangle, Play, BarChart3, List, Activity, Cpu, Zap, Eye, Info, Radio, Layers, Download, FlaskConical, HelpCircle, Lock, Unlock, Globe, Box, Target } from 'lucide-react';
 
 const TOOLTIPS = {
@@ -63,6 +64,11 @@ export default function Dashboard() {
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [agentHardened, setAgentHardened] = useState(false);
   const [intelligenceFeed, setIntelligenceFeed] = useState<any>(null);
+
+  // Semantic Guardrail State
+  const [guardrailMode, setGuardrailMode] = useState('warn');
+  const [guardrailModel, setGuardrailModel] = useState('llama3.1:8b');
+  const [contextTurns, setContextTurns] = useState(10);
 
   const fetchStats = async () => {
     try {
@@ -149,7 +155,10 @@ export default function Dashboard() {
           name: campaignName,
           target_agent_type: mode === 'REAL_AGENT' ? 'mistral:latest' : 'Sandbox Container',
           attack_category: category,
-          mode: mode
+          mode: mode,
+          guardrail_mode: guardrailMode,
+          guardrail_model: guardrailModel,
+          guardrail_context_turns: contextTurns
         })
       });
       const data = await res.json();
@@ -174,7 +183,10 @@ export default function Dashboard() {
           name: campaignName,
           attack_category: category,
           mode: 'INQUISITOR',
-          max_turns: 5
+          max_turns: 5,
+          guardrail_mode: guardrailMode,
+          guardrail_model: guardrailModel,
+          guardrail_context_turns: contextTurns
         })
       });
       const data = await res.json();
@@ -291,6 +303,13 @@ export default function Dashboard() {
             <Download className="w-4 h-4" />
             Report
           </button>
+          <Link
+            href="/eval"
+            className="flex items-center gap-2 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 hover:border-purple-500/50 text-purple-400 text-xs font-semibold px-4 py-2.5 rounded-xl transition-all shadow-[0_0_15px_rgba(168,85,247,0.1)] hover:shadow-[0_0_25px_rgba(168,85,247,0.3)]"
+          >
+            <FlaskConical className="w-4 h-4" />
+            Eval Matrix
+          </Link>
           <div className="flex items-center gap-2 bg-slate-900/50 px-4 py-2 rounded-full border border-white/5">
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             <span className="text-xs font-mono text-slate-400 tracking-wider">HARNESS ONLINE</span>
@@ -300,7 +319,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Left Column: Controls & Defense */}
-        <div className="lg:col-span-4 space-y-8">
+        <div className="lg:col-span-4 space-y-8 relative z-20">
           {/* Launch Sequence Section */}
           <section className="bg-slate-900/60 border border-white/10 rounded-3xl p-7 backdrop-blur-xl shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)] relative group animate-in slide-in-from-left duration-700">
             <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -489,26 +508,78 @@ export default function Dashboard() {
             </button>
           </section>
 
-          {/* Stats Summary */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-slate-900/60 border border-white/10 rounded-3xl p-6 relative group shadow-xl">
-              <div className="absolute top-0 right-0 p-3 opacity-30 group-hover:opacity-100 transition-opacity">
-                <InfoTooltip text="Total number of threat payloads that successfully bypassed model constraints." align="left" />
+          {/* Semantic Guard Configuration */}
+          <section className="bg-slate-900/60 border border-white/10 rounded-3xl p-7 backdrop-blur-xl shadow-xl relative group">
+            <h2 className="text-lg font-black mb-8 flex items-center gap-3 text-cyan-400 uppercase tracking-tighter">
+              <div className="p-1.5 bg-cyan-500 rounded-lg shadow-[0_0_15px_rgba(34,211,238,0.4)]">
+                <Shield className="w-4 h-4 text-slate-950 fill-current" />
               </div>
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Exploits Found</span>
-              <div className="flex items-baseline gap-2">
-                <span className="text-4xl font-black text-rose-500 tracking-tighter font-mono">{stats.successful_exploits}</span>
-                <div className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+              Semantic Guard
+            </h2>
+            <div className="space-y-6">
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase mb-3 block tracking-widest">Enforcement Mode</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {['observe', 'warn', 'block'].map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setGuardrailMode(m)}
+                      className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border-2 ${guardrailMode === m ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.3)]' : 'bg-slate-950 text-slate-500 border-white/10 hover:border-white/20'}`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase mb-2 block tracking-widest">Guard Model</label>
+                  <select
+                    value={guardrailModel}
+                    onChange={(e) => setGuardrailModel(e.target.value)}
+                    className="w-full bg-slate-950 border-2 border-white/10 rounded-2xl px-4 py-3 focus:outline-none focus:border-cyan-500 transition-all appearance-none cursor-pointer font-black text-[10px] tracking-wider uppercase text-slate-300"
+                  >
+                    <option value="llama3.1:8b">Llama 3.1 8B</option>
+                    <option value="qwen2.5:14b">Qwen 2.5 14B</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase mb-2 block tracking-widest">Context History</label>
+                  <input
+                    type="number"
+                    value={contextTurns}
+                    onChange={(e) => setContextTurns(parseInt(e.target.value))}
+                    className="w-full bg-slate-950 border-2 border-white/10 rounded-2xl px-4 py-3 focus:outline-none focus:border-cyan-500 transition-all font-black text-[10px] tracking-wider text-slate-300"
+                  />
+                </div>
+              </div>
+
+              <div className="p-4 bg-cyan-500/5 border border-cyan-500/20 rounded-2xl">
+                <p className="text-[9px] text-cyan-400 leading-relaxed font-bold italic">
+                  {guardrailMode === 'observe' && "OBSERVE: The guard will analyze intent but will NOT interfere with the campaign flow."}
+                  {guardrailMode === 'warn' && "WARN: The guard will inject warnings into the evidence stream if adversarial intent is detected."}
+                  {guardrailMode === 'block' && "BLOCK: The guard will actively terminate any turn that exceeds risk thresholds."}
+                </p>
               </div>
             </div>
-            <div className="bg-slate-900/60 border border-white/10 rounded-3xl p-6 relative group shadow-xl">
-              <div className="absolute top-0 right-0 p-3 opacity-30 group-hover:opacity-100 transition-opacity">
-                <InfoTooltip text="Total number of attacks neutralized by the Aegis Policy Engine." align="left" />
+          </section>
+
+          {/* Defense Metrics - Wrapped in a div for spacing */}
+          <div className="bg-slate-900/60 border border-white/10 rounded-3xl p-7 shadow-xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-lg font-black flex items-center gap-3 text-emerald-400 uppercase tracking-tighter">
+                <Shield className="w-5 h-5 text-emerald-500" /> System Stats
+              </h2>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-slate-950 p-4 rounded-2xl border border-white/5">
+                <p className="text-[10px] font-black text-slate-500 uppercase mb-1 tracking-widest">Exploits</p>
+                <p className="text-2xl font-black text-rose-500 tabular-nums">{stats.successful_exploits}</p>
               </div>
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Neutralized</span>
-              <div className="flex items-baseline gap-2">
-                <span className="text-4xl font-black text-emerald-400 tracking-tighter font-mono">{stats.failed_attempts}</span>
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <div className="bg-slate-950 p-4 rounded-2xl border border-white/5">
+                <p className="text-[10px] font-black text-slate-500 uppercase mb-1 tracking-widest">Neutralized</p>
+                <p className="text-2xl font-black text-emerald-400 tabular-nums">{stats.failed_attempts}</p>
               </div>
             </div>
           </div>
@@ -596,9 +667,8 @@ export default function Dashboard() {
           </section>
         </div>
 
-
         {/* Right Column: Feed & Logs */}
-        <div className="lg:col-span-8 space-y-8">
+        <div className="lg:col-span-8 space-y-8 relative z-10">
           {/* Audit Stream Section */}
           <section className="bg-slate-900/40 border border-white/10 rounded-3xl p-6 h-[400px] flex flex-col backdrop-blur-sm shadow-xl relative overflow-hidden">
             <div className="flex justify-between items-center mb-6">
@@ -707,8 +777,109 @@ export default function Dashboard() {
             </section>
           )}
 
+          {/* Inquisitor Session Breakdown */}
+          {inquisitorResult && (
+            <section className="bg-slate-900/40 border-2 border-cyan-500/20 rounded-3xl p-8 mb-8 animate-in fade-in slide-in-from-bottom-8 duration-700 shadow-2xl relative overflow-hidden backdrop-blur-xl">
+              <div className="absolute top-0 right-0 p-8 opacity-5">
+                <Target className="w-32 h-32 text-cyan-400" />
+              </div>
+
+              <div className="relative z-10">
+                <div className="flex justify-between items-center mb-10">
+                  <div>
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className={`text-[10px] font-black px-3 py-1.5 rounded-lg tracking-[0.2em] shadow-lg ${inquisitorResult.exploit_confirmed ? 'bg-rose-500 text-white' : 'bg-emerald-500 text-slate-950'}`}>
+                        {inquisitorResult.exploit_confirmed ? 'EXPLOIT CONFIRMED' : 'ACCESS DENIED'}
+                      </div>
+                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                        Adversarial Session: {inquisitorResult.id.substring(0, 8)}
+                      </span>
+                    </div>
+                    <h2 className="text-3xl font-black text-white tracking-tighter uppercase">
+                      Inquisitor Report: {inquisitorResult.category}
+                    </h2>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Total Turns</p>
+                    <p className="text-2xl font-black text-cyan-400">{inquisitorResult.turns.length}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  {inquisitorResult.turns.map((turn: any, idx: number) => (
+                    <div key={idx} className="bg-slate-950/50 border border-white/5 rounded-2xl p-6 hover:border-cyan-500/20 transition-all duration-300 group">
+                      <div className="flex justify-between items-center mb-6">
+                        <span className="text-[11px] font-black text-cyan-500/70 uppercase tracking-widest bg-cyan-500/5 px-3 py-1 rounded-full">
+                          Turn {turn.turn}
+                        </span>
+                        <div className={`text-[10px] font-black px-2 py-1 rounded lowercase ${turn.exploit_severity === 'CRITICAL' ? 'bg-rose-500 text-white' :
+                          turn.exploit_severity === 'HIGH' ? 'bg-orange-500 text-white' :
+                            'bg-slate-800 text-slate-400'
+                          }`}>
+                          {turn.escalation_decision}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <div className="space-y-4">
+                          <div>
+                            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-3">Attacker Prompt</p>
+                            <div className="bg-slate-900/40 p-4 rounded-xl border border-white/5 text-[11px] text-rose-300/80 italic leading-relaxed font-mono">
+                              "{turn.attacker_prompt}"
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-3">Target Response</p>
+                            <div className="bg-slate-900/40 p-4 rounded-xl border border-white/5 text-[11px] text-slate-300 leading-relaxed font-mono">
+                              {turn.target_response}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          {turn.tool_call_attempted && (
+                            <div>
+                              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-3">Tool Strategy</p>
+                              <div className="bg-black/60 p-4 rounded-xl border border-white/5 font-mono text-[10px] text-cyan-400">
+                                <span className="text-purple-400">call</span> {turn.tool_call_attempted.tool}({
+                                  Object.entries(turn.tool_call_attempted.args || {}).map(([k, v]) => `${k}="${v}"`).join(', ')
+                                })
+                              </div>
+                            </div>
+                          )}
+                          <div>
+                            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-3">Policy Decision</p>
+                            <div className={`text-[10px] font-bold p-3 rounded-xl border ${turn.policy_decision?.includes('ALLOWED') ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' :
+                              turn.policy_decision?.includes('BLOCKED') ? 'bg-rose-500/5 border-rose-500/20 text-rose-400' :
+                                'bg-slate-800/40 border-white/5 text-slate-500'
+                              }`}>
+                              {turn.policy_decision || "N/A"}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-8 pt-8 border-t border-white/5 flex justify-between items-center">
+                  <div className="max-w-2xl">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Inquisitor Summary</p>
+                    <p className="text-xs text-slate-400 leading-relaxed font-medium capitalize">{inquisitorResult.summary || "No summary generated."}</p>
+                  </div>
+                  <button
+                    onClick={() => window.open(`/attack-graph/${inquisitorResult.id}`, '_blank')}
+                    className="flex items-center gap-3 px-6 py-3 bg-cyan-500 text-slate-950 rounded-xl font-black text-[11px] uppercase tracking-widest hover:bg-cyan-400 hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(34,211,238,0.3)]"
+                  >
+                    <Activity className="w-4 h-4" /> Analyze Graph
+                  </button>
+                </div>
+              </div>
+            </section>
+          )}
+
           {/* Campaign Result Display */}
-          {lastResult && (
+          {lastResult && lastResult.evidence && (
             <section className={`border-2 rounded-3xl p-8 animate-in fade-in slide-in-from-bottom-8 duration-700 shadow-2xl relative overflow-hidden ${lastResult.outcome === 'FAIL' ? 'bg-rose-500/5 border-rose-500/30' : 'bg-cyan-500/5 border-cyan-500/30'}`}>
               <div className="absolute top-0 right-0 p-8 opacity-10">
                 {lastResult.outcome === 'PASS' ? <Shield className="w-32 h-32 text-cyan-400" /> : <AlertTriangle className="w-32 h-32 text-rose-500" />}
@@ -757,8 +928,24 @@ export default function Dashboard() {
                   </div>
 
                   <div className="space-y-6 font-mono">
+                    {lastResult.evidence.tool_calls_attempted?.length > 0 && (
+                      <div className="animate-in fade-in slide-in-from-right-4 duration-500">
+                        <p className="text-[10px] font-black text-cyan-400 mb-3 uppercase tracking-widest flex items-center gap-2">
+                          <Terminal className="w-4 h-4" /> Attempted Execution Trace
+                        </p>
+                        <div className="bg-slate-950/80 p-5 rounded-2xl border border-white/5 space-y-3 shadow-inner">
+                          {lastResult.evidence.tool_calls_attempted.map((tc: any, idx: number) => (
+                            <div key={idx} className="font-mono text-[10px] text-cyan-300/90 bg-black/40 p-3 rounded-lg border border-white/5 break-all">
+                              <span className="text-purple-400">call</span> {tc.tool}({
+                                Object.entries(tc.args || {}).map(([k, v]) => `${k}="${v}"`).join(', ')
+                              })
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div>
-                      <p className="text-[10px] font-black text-slate-500 mb-3 uppercase tracking-widest">Execution Trace (Stdout)</p>
+                      <p className="text-[10px] font-black text-slate-500 mb-3 uppercase tracking-widest">Execution Output (Final)</p>
                       <div className="bg-slate-950/80 p-5 rounded-2xl border border-white/5 h-40 overflow-y-auto text-emerald-500 text-[11px] custom-scrollbar shadow-inner leading-relaxed">
                         {lastResult.evidence.stdout || 'No system output intercepted.'}
                       </div>
@@ -808,7 +995,15 @@ export default function Dashboard() {
                       </span>
                     )}
                     <h3 className="text-2xl font-black text-white tracking-tighter uppercase mb-2">{inquisitorResult.category?.replace(/_/g, ' ')} Hunt</h3>
-                    <p className="text-slate-400 text-xs font-bold tracking-widest uppercase opacity-70">{inquisitorResult.total_turns_used} Turns Executed · {inquisitorResult.summary}</p>
+                    <div className="flex items-center gap-4">
+                      <p className="text-slate-400 text-xs font-bold tracking-widest uppercase opacity-70">{inquisitorResult.total_turns_used} Turns Executed · {inquisitorResult.summary}</p>
+                      <button
+                        onClick={() => window.open(`/attack-graph/${inquisitorResult.id}`, '_blank')}
+                        className="flex items-center gap-1.5 text-[10px] font-black text-cyan-400 hover:text-cyan-300 transition-colors bg-cyan-400/10 px-3 py-1 rounded-full border border-cyan-400/20"
+                      >
+                        <Activity className="w-3.5 h-3.5" /> Analyze Graph
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -831,7 +1026,33 @@ export default function Dashboard() {
                         <div className="space-y-2">
                           <p className="text-[11px] leading-relaxed"><span className="text-cyan-500 font-black uppercase tracking-tighter">ATTACKER › </span><span className="text-slate-300">{turn.attacker_prompt}</span></p>
                           <p className="text-[11px] leading-relaxed"><span className="text-purple-500 font-black uppercase tracking-tighter">TARGET   › </span><span className="text-slate-400 italic font-medium">"{turn.target_response?.slice(0, 300)}{turn.target_response?.length > 300 ? '...' : ''}"</span></p>
-                          {turn.escalation_decision === 'EXPLOIT_FOUND' && turn.policy_decision === 'BLOCKED' && (
+
+                          {turn.tool_call_attempted ? (
+                            <div className="mt-3 p-4 bg-slate-900/80 border border-cyan-500/20 rounded-xl shadow-inner group/tool overflow-hidden relative">
+                              <div className="absolute top-0 right-0 p-2 opacity-20 group-hover/tool:opacity-100 transition-opacity">
+                                <Terminal className="w-3 h-3 text-cyan-400" />
+                              </div>
+                              <p className="text-[9px] font-black text-cyan-500/60 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                <Activity className="w-3 h-3" /> Attempted Execution Trace
+                              </p>
+                              <div className="font-mono text-[10px] text-cyan-300/90 bg-black/40 p-3 rounded-lg border border-white/5 break-all">
+                                <span className="text-purple-400">call</span> {turn.tool_call_attempted.tool}({
+                                  Object.entries(turn.tool_call_attempted.args || {}).map(([k, v]) => `${k}="${v}"`).join(', ')
+                                })
+                              </div>
+                            </div>
+                          ) : (
+                            turn.escalation_decision === 'EXPLOIT_FOUND' && (
+                              <div className={`mt-3 p-3 border rounded-xl text-[10px] font-bold italic flex items-center gap-2 ${turn.target_response?.toLowerCase().includes('permission denied') || turn.target_response?.toLowerCase().includes('i cannot') ? 'bg-cyan-500/10 border-cyan-500/20 text-cyan-400/70' : 'bg-amber-500/10 border-amber-500/20 text-amber-400/80'}`}>
+                                <Shield className="w-3.5 h-3.5" />
+                                {turn.target_response?.toLowerCase().includes('permission denied') || turn.target_response?.toLowerCase().includes('i cannot')
+                                  ? '🟢 MODEL REFUSAL: Target correctly denied access at the thinking level. No execution attempted.'
+                                  : '⚠️ SLOPPY COMPLIANCE: Target agreed to the attack but failed to trigger a structural tool call.'}
+                              </div>
+                            )
+                          )}
+
+                          {turn.escalation_decision === 'EXPLOIT_FOUND' && turn.tool_call_attempted && turn.policy_decision?.includes('BLOCKED') && (
                             <div className="mt-3 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-[10px] font-bold text-emerald-400/80 italic flex items-center gap-2">
                               <Shield className="w-3.5 h-3.5" />
                               🛡️ VULNERABILITY NEUTRALIZED: LLM bypass detected, but execution was killed by firewall.
@@ -845,10 +1066,7 @@ export default function Dashboard() {
               </div>
             </section>
           )}
-        </div>
-      </div >
-
-      <style jsx global>{`
+          <style jsx global>{`
         @keyframes shimmer {
           0% { transform: translateX(-100%); }
           100% { transform: translateX(100%); }
@@ -867,6 +1085,8 @@ export default function Dashboard() {
           background: rgba(34, 211, 238, 0.5);
         }
       `}</style>
-    </div >
+        </div>
+      </div>
+    </div>
   );
 }

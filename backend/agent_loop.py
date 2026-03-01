@@ -2,7 +2,8 @@ import json
 import httpx
 from typing import Dict, Any, Optional, Tuple, List
 from policy_engine import policy_engine
-from models import Evidence
+from models import Evidence, GuardrailMode, AttackCampaign
+from semantic_guard import semantic_guard
 
 class AgentLoop:
     def __init__(self, ollama_url: str = "http://localhost:11434/api/generate", model: str = "llama3.1:8b"):
@@ -64,13 +65,14 @@ If the user's request involves any forbidden path, any suspicious keyword (bypas
                 parts.append(f"Assistant: {content}")
         return "\n\n".join(parts)
 
-    async def run_iteration(self, user_input: str) -> Tuple[Evidence, Optional[Dict[str, Any]]]:
+    async def run_iteration(self, user_input: str, campaign: Optional[AttackCampaign] = None) -> Tuple[Evidence, Optional[Dict[str, Any]]]:
         """Single-turn iteration — wraps run_iteration_with_history for compatibility."""
-        return await self.run_iteration_with_history([{"role": "user", "content": user_input}])
+        return await self.run_iteration_with_history([{"role": "user", "content": user_input}], campaign=campaign)
 
     async def run_iteration_with_history(
         self,
-        history: List[Dict[str, str]]
+        history: List[Dict[str, str]],
+        campaign: Optional[AttackCampaign] = None
     ) -> Tuple[Evidence, Optional[Dict[str, Any]]]:
         """
         Multi-turn aware iteration. Sends full conversation history to the target agent.
@@ -102,14 +104,39 @@ If the user's request involves any forbidden path, any suspicious keyword (bypas
 
                 result = response.json()
                 response_text = result.get("response", "")
+                
+                # ── Hook Point 1: Narrative Semantic Gate ─────────────────────
+                if campaign and campaign.guardrail_mode != GuardrailMode.OBSERVE:
+                    packet = {
+                        "campaign_name": campaign.name,
+                        "guardrail_model": campaign.guardrail_model,
+                        "history_window": history[-campaign.guardrail_context_turns:],
+                        "assistant_draft": response_text,
+                        "system_policy_summary": self.system_prompt[:200]
+                    }
+                    verdict = await semantic_guard.evaluate_narrative(packet)
+                    evidence.semantic_verdicts.append(verdict.dict())
+                    
+                    if verdict.risk_level in ["BLOCK", "CRITICAL"] and campaign.guardrail_mode == GuardrailMode.BLOCK:
+                        evidence.blocked_drafts.append(response_text)
+                        evidence.sensitive_events.append(f"Semantic Block (Narrative): {verdict.rationale}")
+                        response_text = "I cannot fulfill this request as it violates my security assessment protocols."
+                
                 evidence.stdout = response_text
 
+                # Bug Fix #4: Robust JSON Extraction.
+                # Use regex to find JSON in prose, as models often add "Sure, here's the tool call:"
+                import re
                 try:
-                    tool_call = json.loads(response_text)
-                    if "tool" in tool_call and "args" in tool_call:
-                        evidence.tool_calls_attempted.append(tool_call)
-                        return evidence, tool_call
-                except json.JSONDecodeError:
+                    # Look for anything starting with { and ending with }
+                    match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                    if match:
+                        json_str = match.group(0)
+                        tool_call = json.loads(json_str)
+                        if "tool" in tool_call and "args" in tool_call:
+                            evidence.tool_calls_attempted.append(tool_call)
+                            return evidence, tool_call
+                except (json.JSONDecodeError, Exception):
                     pass
 
                 return evidence, None

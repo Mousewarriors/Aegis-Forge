@@ -1,6 +1,13 @@
-# 🛡️ Aegis Forge: AI-Agent Red Teaming Harness
+# 🛡️ Aegis Forge: The Ultimate AI Security Research Sandbox
 
-A safe, sandboxed environment for evaluating the security of AI agents against prompt injection, tool misuse, and data exfiltration.
+Aegis Forge is a hyper-secure, locally-hosted environment designed exclusively for testing, breaking, and hardening AI agents. By executing adversarial payloads inside isolated Docker containers, security researchers can safely evaluate Large Language Model (LLM) decision-making protocols against Prompt Injection, RBAC bypasses, and Data Exfiltration techniques without risking host system integrity.
+
+## ✨ Core Capabilities
+
+*   **Promptfoo Red Teaming Native Integration:** Run sophisticated, automated Red Team campaigns powered by local language models (Ollama). Aegis Forge invokes Promptfoo headlessly in the background, churning through thousands of payload permutations and returning the results to a beautiful Vulnerability Matrix on the frontend.
+*   **Active Agent Hardening:** Intercept adversarial payloads dynamically with a contextual Semantic Guard LLM that sits in front of your tools. Toggle restrictions mid-flight and watch your agent refuse unsafe instructions before they reach the execution engine.
+*   **eBPF SysWatch Kernel Telemetry:** True security cannot rely merely on Python-layer logging. Aegis Forge leverages `bpftrace` to monitor raw syscalls (like `execve` and `openat2`) exactly as they happen inside the container sandbox. It seamlessly degrades gracefully to containerized probes for WSL2/Windows hosts.
+*   **Isolated Ephemeral Containers:** Every execution spawns an isolated, non-root Docker container stripped of network access (unless explicitly required). Once the payload concludes, the container is destroyed, leaving zero persistence footprint behind.
 
 ## ⚖️ Ethical Use & Scope
 **IMPORTANT**: This application is strictly for **local research and testing** of AI agents in controlled environments.
@@ -10,34 +17,12 @@ A safe, sandboxed environment for evaluating the security of AI agents against p
 - **No External Targeting**: Do not use this tool to target external systems, public IPs, or third-party networks.
 - **Controlled Payloads**: Payloads are designed to demonstrate internal safety failures, not to facilitate real-world attacks.
 
-## 🏗️ How it Works
-Aegis Forge runs "campaigns" against a target agent. Each campaign follows a structured lifecycle:
+## 🚀 Quick Start
+Please see the authoritative **[STARTUP.md](STARTUP.md)** for detailed instructions on launching the Backend FastAPI, the Next.js Frontend, Docker daemon requirements, and local Ollama setup.
 
-1. **Sandbox Creation**: Spins up a fresh, disposable Docker container with strict security constraints (non-root, no network, restricted resources).
-2. **Execution Mode**:
-   - **Mode A (Simulated)**: Directly simulates a failed guardrail by mapping a payload to a specific tool call attempt (e.g., trying to read `/etc/passwd`).
-   - **Mode B (Real Agent)**: Sends the payload to a real LLM (via local Ollama) and observes if the agent *chooses* to call a tool unsafely.
-3. **Policy Enforcement**: The `ToolPolicyEngine` intercepts every tool call attempt and validates it against an explicit allowlist and path-safety rules.
-4. **Evidence Collection**: Captures prompts, tool call attempts, policy decisions, and execution outputs.
-5. **Deterministic Reporting**: Produces a structured JSON report and human-readable summary with clear outcome definitions (`PASS`, `WARNING`, `FAIL`).
-
-## 🚀 Quick Start (Red Teaming)
-
-### Mode A: Simulated Baseline
-Use this mode to test your sandbox hardening and policy rules without an LLM cost.
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8000/campaigns/run" -Method Post -ContentType "application/json" -Body '{"name": "Simulated Audit", "target_agent_type": "Docker Container", "attack_category": "data_exfiltration", "mode": "SIMULATED"}'
-```
-
-### Mode B: Real Agent Evaluation
-Requires **Ollama** running locally with the `llama3` model.
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8000/campaigns/run" -Method Post -ContentType "application/json" -Body '{"name": "End-to-End Test", "target_agent_type": "LLM Agent", "attack_category": "prompt_injection", "mode": "REAL_AGENT"}'
-```
-
-## 🛠️ Components
-- `policy_engine.py`: The core guardrail system.
-- `docker_manager.py`: Hardened container orchestration.
-- `agent_loop.py`: LLM interaction and tool parsing.
-- `monitor.py`: Structured evidence and outcome evaluation.
-- `report_gen.py`: Human-friendly security summaries.
+## 🛠️ Architecture
+- `main.py` & `models.py`: The FastAPI orchestration backbone.
+- `policy_engine.py`: The deterministic tool-call guardrail system.
+- `docker_manager.py`: Hardened container lifecycle management.
+- `ebpf_monitor.py`: The SysWatch kernel tracepoint scanner.
+- `promptfooconfig.yaml`: Customized local Red Team attack configurations.

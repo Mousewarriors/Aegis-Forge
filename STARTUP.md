@@ -1,77 +1,55 @@
-# 🚀 Aegis Forge: Quick Start Guide
+## 🚀 Aegis Forge: Quick Start Guide
 
-> **Note for Antigravity (future session):** Read the "Current Project State" section below before doing anything else to restore full context.
+This is the **authoritative** guide for starting the Aegis Forge environment. Follow these steps in order.
 
 ## 1. Prerequisites
-- **Docker Desktop** must be running (WSL2 backend — confirmed working).
-- `quay.io/iovisor/bpftrace:latest` must be pulled (already done: `docker pull quay.io/iovisor/bpftrace:latest`).
+- **Docker Desktop** must be running (**WSL2 backend** required for SysWatch eBPF monitoring).
+- `quay.io/iovisor/bpftrace:latest` must be pulled:
+  ```powershell
+  docker pull quay.io/iovisor/bpftrace:latest
+  ```
+- **Ollama** must be running locally with `llama3.1:8b` pulled.
+- **Node.js 20+** installed on the host.
 
 ## 2. Start the Backend (Terminal 1)
 ```powershell
 cd d:\Agent-Container-Pentester\ai-pentest-researcher\aegis-forge\backend
+# Ensure virtualenv is active
 .\venv\Scripts\activate
 python main.py
 ```
+> [!NOTE]
+> The backend automatically detects if it's running in Windows or Linux (WSL2) to coordinate SysWatch containerized probes.
 
 ## 3. Start the Frontend (Terminal 2)
 ```powershell
 cd d:\Agent-Container-Pentester\ai-pentest-researcher\aegis-forge\frontend
-npm run dev
+npx next dev -p 3000 --hostname 0.0.0.0
 ```
 
-## 4. Access the App
-- **Dashboard**: [http://localhost:3000](http://localhost:3000)
-- **API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+## 4. Run Red Team Evaluations (Promptfoo)
+Once the servers are running, you can trigger advanced algorithmic scans:
+1. Navigate to the **Eval Matrix** page in the UI.
+2. Click **Launch Eval**.
+3. The backend will invoke `npx promptfoo redteam run` locally using your Ollama instance.
+4. **Agent Hardening:** You can toggle the "Agent Hardening" switch mid-scan to instantly update the agent's system prompt and watch the live execution block incoming adversarial payloads.
+
+## 5. Access Summary
+- **Main Dashboard**: [http://localhost:3000](http://localhost:3000)
+- **Red Team Eval Matrix**: [http://localhost:3000/eval](http://localhost:3000/eval)
+- **API Documentation**: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ---
 
-## 🧠 Current Project State (as of 2026-02-28)
+## 🧠 Current Project State (2026-03-01)
 
-### New Features Built This Session
+### Core Integration — Promptfoo
+Integrated Promptfoo as a native bencharking suite. The backend (FastAPI) manages `promptfoo` subprocesses, while the frontend provides a real-time vulnerability matrix visualization.
 
-#### 🕵️ Feature 1 — The Inquisitor (Multi-Turn Adversarial Agent)
-A second LLM ("The Inquisitor") autonomously drives multi-turn prompt injection attacks, adapting strategy based on the target's responses.
+### SysWatch — Kernel Monitoring
+Enabled eBPF-based syscall monitoring for agent containers. When running on Windows, the system automatically falls back to a **containerized bpftrace probe** inside Docker (WSL2) to maintain visibility into the sandboxed kernel.
 
-**New files:**
-- `backend/inquisitor.py` — The Inquisitor adversarial loop
-- **Modified:** `backend/agent_loop.py` — added `run_iteration_with_history()`
-- **Modified:** `backend/models.py` — `Mode.C (INQUISITOR)`, `InquisitorSession`, `InquisitorTurn`, `EscalationDecision`
-- **Modified:** `backend/main.py` — new `POST /campaigns/inquisitor` endpoint
-- **Modified:** `frontend/src/app/page.tsx` — INQUISITOR mode button + turn-log panel
+### Semantic Guardrails
+Layered defense using a "Guard" LLM to intercept and block adversarial intent in real-time.
+- `BLOCK` mode is now the default for high-security scenarios.
 
-**Requires:** Ollama running locally with `mistral:latest` for real LLM attacks.
-
-#### 🔍 Feature 2 — SysWatch (eBPF Kernel Monitoring)
-A bpftrace probe runs in a privileged container on the WSL2 kernel and watches every syscall from sandbox containers. Suspicious events (file access, shell exec, network) auto-trigger `FAIL`.
-
-**New files:**
-- `backend/ebpf_monitor.py` — SysWatchMonitor (auto-selects native/containerised/skip)
-- `backend/probes/aegis.bt` — bpftrace probe script (supports `openat2` for WSL2)
-- `backend/probes/smoke_test.bt` — verified smoke test script
-- **Modified:** `backend/models.py` — `KernelEvent`, `SysWatchSession`, `evidence.kernel_events/kernel_alerts`
-- **Modified:** `backend/monitor.py` — kernel-level FAIL override in `evaluate_outcome()`
-- **Modified:** `backend/main.py` — SysWatch wraps every `/campaigns/run`
-- **Modified:** `frontend/src/app/page.tsx` — amber SysWatch panel in campaign results
-
-**SysWatch runs automatically on every campaign.** On Windows (Docker WSL2), it auto-uses the containerised mode (`quay.io/iovisor/bpftrace`). Mounting `/sys/kernel/debug` is required — this is done automatically in `ebpf_monitor.py`.
-
-### What Still Needs Work / Next Steps
-- **Test Inquisitor end-to-end** (requires Ollama + `mistral:latest` locally)
-- **See real SysWatch kernel events** — needs a campaign where a command actually executes (not policy-blocked). Try `identity_verification` category which runs `whoami`.
-- **Display SysWatch events in the scan/sweep results** (currently only shows in single campaign runs)
-- **Add Inquisitor to the Audit Stream history** (currently only `ScenarioRun` appears in history, not `InquisitorSession`)
-
----
-**Tip**: If starting a new session, tell Antigravity: **"Start the Aegis Forge project"** and it will use this file to restore full context.
-
-## ⚙️ Current Defaults (updated 2026-02-28)
-- **Inquisitor attacker model**: `llama3.1:8b` (switched from `mistral:latest`)
-- **Target agent model**: `llama3.1:8b` (switched from `mistral:latest`)
-- **Ollama must be running** with `llama3.1:8b` pulled.
-
-## 🐛 Bug Fixes Applied This Session
-- **Blocked tool calls now count as EXPLOIT_FOUND** (behavioral bypass, firewall just stopped it). Severity: HIGH.
-- **Fuzzy signal parsing**: Inquisitor narrating around EXPLOIT_FOUND/FAILED now handled correctly.
-- **Exploit severity scoring**: CRITICAL (allowed) / HIGH (blocked) / LOW (LLM-declared). Shown in UI.
-- **Log truncation removed**: Full target responses now shown in the Inquisitor turn log.
-- **Attack playbook expanded**: 20+ research-backed strategies (DAN, authority escalation, encoding, tool-call exploitation, multi-hop).
