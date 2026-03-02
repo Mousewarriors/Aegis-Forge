@@ -41,3 +41,6 @@ desktop.ini
 .idea/
 *.swp
 *.swo
+
+# Logs
+backend/*.log

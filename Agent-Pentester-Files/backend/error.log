@@ -1,0 +1,7 @@
+[SysWatch] bpftrace not found. Kernel monitoring will be simulated/skipped.
+Traceback (most recent call last):
+  File "D:\Agent-Container-Pentester\ai-pentest-researcher\aegis-forge\backend\main.py", line 21, in <module>
+    from models import (
+    ...<2 lines>...
+    )
+ImportError: cannot import name 'EvalRequest' from 'models' (D:\Agent-Container-Pentester\ai-pentest-researcher\aegis-forge\backend\models.py)

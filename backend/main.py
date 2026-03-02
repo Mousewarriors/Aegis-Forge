@@ -1,15 +1,17 @@
 from fastapi import FastAPI, HTTPException, Body, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import docker
+import os
+import json
 import uuid
 import time
 import subprocess
 import asyncio
 from asyncio import subprocess as async_subprocess
-import os
-import json
+import sys
 from typing import List, Optional, Dict, Any
-import subprocess
+import yaml
 
 from docker_manager import orchestrator
 from payload_gen import payload_gen
@@ -40,7 +42,6 @@ app.add_middleware(
 def ensure_docker_running():
     """Attempts to check if Docker is running and optionally starts it on Windows."""
     try:
-        import docker
         client = docker.from_env()
         client.ping()
         print("✅ [DOCKER] Docker daemon is responsive.")
@@ -49,19 +50,20 @@ def ensure_docker_running():
         if os.name == 'nt':
             docker_path = r"C:\Program Files\Docker\Docker\Docker Desktop.exe"
             if os.path.exists(docker_path):
-                print(f"🚀 [DOCKER] Attempting to start Docker Desktop...")
-                try:
-                    # Use subprocess for better compatibility/control if os.startfile is flagged
-                    subprocess.Popen([docker_path], shell=True)
-                    print("⏳ [DOCKER] Please wait for Docker to initialize.")
-                except Exception as e:
-                    print(f"⚠ [DOCKER] Failed to start Docker Desktop: {e}")
+                print("⏳ [DOCKER] Attempting to start Docker Desktop...")
+                subprocess.Popen([docker_path])
+                time.sleep(15) # Wait for daemon to initialize
             else:
                 print("⚠ [DOCKER] Docker Desktop not found at default path. Please start manually.")
         else:
             print("⚠ [DOCKER] Please ensure Docker is running (sudo service docker start).")
 
-ensure_docker_running()
+# Startup event to clean up orphaned containers from previous crashed sessions
+@app.on_event("startup")
+async def startup_event():
+    print("🚀 [SYSTEM] Aegis Forge Backend starting up...")
+    ensure_docker_running()
+    orchestrator.purge_stale_resources()
 
 @app.get("/health")
 async def health():
@@ -133,42 +135,11 @@ async def run_campaign(campaign: AttackCampaign = Body(...)):
     syswatch_session = syswatch.start_for_container(container.id, canary_prefixes=canary_prefixes)
 
     # ── Set Policy Engine Context ───────────────────────────────────────────
-    # The following lines are from the provided diff, but `conversation` and `ctx_turns` are not defined here.
-    # Assuming this was intended for a different context or `campaign.guardrail_context_turns` should be used directly.
-    # For now, I'm applying the change as literally as possible, but noting the potential issue.
-    # If `conversation` and `ctx_turns` are meant to be derived from `campaign`, this needs clarification.
-    # Given the context of `run_campaign`, `campaign.guardrail_context_turns` is the source.
-    # I will use `campaign.guardrail_context_turns` for `ctx_turns` and an empty list for `conversation`
-    # as there's no ongoing conversation in a single-turn `run_campaign` for `Mode.A`.
-    # For `Mode.B`, `agent_loop.run_iteration` handles its own context.
-    # This block seems to be a copy-paste from `inquisitor.py`'s context setting.
-    # Reverting to original `policy_engine.set_context` for `run_campaign` as the diff seems misplaced here.
-    # The instruction "fix slicing lints in inquisitor.py" implies the diff is for inquisitor.py, not main.py.
-    # However, the user provided the diff *within* the main.py content.
-    # I will apply the diff as provided, but will make `conversation` an empty list and `ctx_turns` from `campaign`.
-    # This will make the code syntactically correct, but semantically might not be what was intended for `main.py`.
-    # Let's assume `ctx_turns` is `campaign.guardrail_context_turns` and `conversation` is `history_window` from the previous context.
-    # This is a tricky one. The original `history_window` was `[{"role": "user", "content": payload_info["payload"]}]`.
-    # The diff replaces the entire `policy_engine.set_context` block.
-    # I will apply the diff as literally as possible, assuming `conversation` and `ctx_turns` are meant to be defined
-    # or that this block was intended for a different file.
-    # Given the instruction "fix slicing lints in inquisitor.py", and the diff being in `main.py`,
-    # I will apply the diff to `main.py` as requested, but will use the existing `campaign.guardrail_context_turns`
-    # and the initial payload as the "conversation" for `history_window`.
-
-    # Original:
-    # policy_engine.set_context({
-    #     "campaign_name": campaign.name,
-    #     "guardrail_mode": campaign.guardrail_mode,
-    #     "guardrail_model": campaign.guardrail_model,
-    #     "guardrail_context_turns": campaign.guardrail_context_turns,
-    #     "history_window": [{"role": "user", "content": payload_info["payload"]}]
-    # })
-
-    # Applying the diff's structure, adapting to `run_campaign` context:
+    # Adapt context for the current campaign run
     ctx_turns = int(campaign.guardrail_context_turns)
     initial_history = [{"role": "user", "content": payload_info["payload"]}]
     hist_window = initial_history[-ctx_turns:] if ctx_turns > 0 else []
+    
     policy_engine.set_context({
         "campaign_name": str(campaign.name),
         "guardrail_mode": campaign.guardrail_mode,
@@ -210,21 +181,13 @@ async def run_campaign(campaign: AttackCampaign = Body(...)):
                 args = tool_call.get("args", {})
 
                 is_allowed, reason = await policy_engine.validate_tool_call(tool_name, args)
-                # This block seems to be misplaced from inquisitor.py as well.
-                # In `run_campaign` (Mode B), `agent_loop.run_iteration` already manages the conversation history
-                # and sets the policy engine context internally for its iterations.
-                # Adding this here would overwrite the context set by `agent_loop`.
-                # However, following the diff literally:
-                if campaign: # This condition is always true here
-                    # `conversation` is not defined in this scope.
-                    # Assuming `policy_engine.context["history_window"]` is the "conversation"
-                    # that `agent_loop` might have updated.
+                if campaign: 
                     turns_to_take = int(campaign.guardrail_context_turns)
-                    # Use the current history window from policy_engine context
                     current_conversation = policy_engine.context.get("history_window", [])
                     hist_slice = current_conversation[-turns_to_take:] if turns_to_take > 0 else []
                     policy_engine.context["history_window"] = hist_slice
-                if "last_semantic_verdict" in policy_engine.context: # This was already present
+                
+                if "last_semantic_verdict" in policy_engine.context: 
                     evidence.semantic_verdicts.append(policy_engine.context["last_semantic_verdict"])
 
                 if is_allowed:
@@ -247,7 +210,8 @@ async def run_campaign(campaign: AttackCampaign = Body(...)):
             {"output": evidence.stdout, "exit_code": 0},
             payload_info,
             tool_denied,
-            kernel_events=syswatch_session.events
+            kernel_events=syswatch_session.events,
+            evidence=evidence
         )
 
         run = ScenarioRun(
@@ -273,23 +237,7 @@ async def run_campaign(campaign: AttackCampaign = Body(...)):
 
         if campaign.workspace_mode == WorkspaceMode.VOLUME:
             try:
-                # We only remove the volume if export wasn't requested or after it's done.
-                # But wait, this API returns immediately. 
-                # For this simple implementation, we keep the volume until the next run OR 
-                # we provide a separate cleanup endpoint.
-                # Actually, the user asked for "On campaign end: stop, remove, remove volume".
-                # This means artifacts MUST be exported BEFORE the 'finally' hits if we want them.
-                # However, the user said "Export must be explicit".
-                # This implies a conflict: if we remove it immediately, they can't ask later.
-                # DECISION: Auto-export to a 'results' folder on host IF it's a success? 
-                # No, user said "only when user asks".
-                # To satisfy both: I'll implement a 'keep_volume' flag or just 
-                # remove it as requested, but maybe add a small delay or 
-                # assume 'export' happened during the loop?
-                # RE-READ: "On campaign end (success or failure): ... remove the named volume".
-                # Okay, I will follow the instruction literally. 
-                # This means if they want artifacts, they better have an automated export 
-                # call at the end of their script or I should auto-export to a safe host path.
+                # Remove volume after campaign completion
                 orchestrator.remove_volume(volume_name)
             except Exception as e:
                 print(f"Error removing volume {volume_name}: {e}")
@@ -306,6 +254,8 @@ async def get_attack_graph(run_id: str):
     # For now, we take the specific run or session logs
     logs = [run_data]
     return graph_builder.build_graph(logs)
+
+
 async def export_campaign_artifacts(
     container_id: str = Body(...),
     path: str = "/workspace/output",
@@ -352,7 +302,7 @@ async def run_inquisitor_campaign(campaign: AttackCampaign = Body(...)) -> Inqui
 
 # === Promptfoo Evaluation Integration ===
 
-active_evals = {} # In-memory tracker: {run_id: {"process": asyncio.subprocess.Process, "status": "running", "output_file": str}}
+active_evals = {} # In-memory tracker: {run_id: {"process": Any, "status": "running", "output_file": str}}
 
 @app.post("/eval/run", response_model=EvalStatusResponse)
 async def start_evaluation(request: EvalRequest = Body(...)):
@@ -362,10 +312,30 @@ async def start_evaluation(request: EvalRequest = Body(...)):
     run_id = f"eval-{int(time.time())}-{uuid.uuid4().hex[:6]}"
     eval_dir = os.path.abspath(os.path.join(os.getcwd(), "..", "promptfoo-eval"))
     output_file = os.path.join(eval_dir, f"report-{run_id}.json")
+    config_file = os.path.join(eval_dir, f"promptfooconfig-{run_id}.yaml")
+    
+    # Read base config
+    base_config_path = os.path.join(eval_dir, "promptfooconfig.yaml")
+    with open(base_config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+        
+    # Update redteam config based on user selection
+    if "redteam" not in config:
+        config["redteam"] = {}
+    config["redteam"]["numTests"] = request.num_tests
+    config["redteam"]["plugins"] = [{"id": p} for p in request.plugins]
+    if request.strategies:
+        config["redteam"]["strategies"] = [{"id": s} for s in request.strategies]
+
+    
+    # Save the dynamic config
+    with open(config_file, "w", encoding="utf-8") as f:
+        yaml.dump(config, f)
     
     # Construct the command
     cmd = [
         "npx.cmd" if os.name == "nt" else "npx", "-y", "promptfoo@latest", "redteam", "run",
+        "-c", config_file,
         "-o", output_file
     ]
     
@@ -414,6 +384,14 @@ async def _monitor_eval_process(run_id: str):
         if process.returncode == 0:
             active_evals[run_id]["status"] = "completed"
             print(f"🧹 [EVAL] Promptfoo run {run_id} completed successfully.")
+            
+            # Post-processing: Parse the report and feed back failures into Audit Stream
+            try:
+                # We use the same python executable to run the parser
+                parser_cmd = [sys.executable, "parse_promptfoo_results.py", run_id]
+                subprocess.Popen(parser_cmd, cwd=os.getcwd())
+            except Exception as e:
+                print(f"❌ [EVAL] Failed to start post-processing parser for {run_id}: {e}")
         else:
             active_evals[run_id]["status"] = "failed"
             print(f"❌ [EVAL] Promptfoo run {run_id} failed with exit code {process.returncode}")
@@ -422,6 +400,44 @@ async def _monitor_eval_process(run_id: str):
     except Exception as e:
         active_evals[run_id]["status"] = "failed"
         print(f"❌ [EVAL] Error monitoring process {run_id}: {str(e)}")
+    finally:
+        # Cleanup temporary config file
+        eval_dir = os.path.abspath(os.path.join(os.getcwd(), "..", "promptfoo-eval"))
+        config_file = os.path.join(eval_dir, f"promptfooconfig-{run_id}.yaml")
+        if os.path.exists(config_file):
+            try:
+                os.remove(config_file)
+            except Exception as e:
+                print(f"Failed to cleanly remove temp config {config_file}: {e}")
+
+@app.post("/eval/stop/{run_id}")
+async def stop_evaluation(run_id: str):
+    """
+    Terminates a running Promptfoo process.
+    """
+    if run_id not in active_evals:
+        raise HTTPException(status_code=404, detail="Evaluation run not found or already finished")
+        
+    eval_info = active_evals[run_id]
+    if eval_info["status"] != "running":
+        return {"run_id": run_id, "status": eval_info["status"], "message": "Evaluation is not currently running"}
+        
+    try:
+        process: Any = eval_info["process"]
+        print(f"📡 [EVAL] Attempting to stop run {run_id} (PID: {process.pid})")
+        # Terminate the process and its children
+        if os.name == "nt":
+            # On Windows, taskkill /F /T kills the process tree
+            kill_result = subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)], capture_output=True, text=True)
+            print(f"🛑 [EVAL] Taskkill result: {kill_result.stdout} {kill_result.stderr}")
+        else:
+            process.terminate()
+            
+        eval_info["status"] = "stopped"
+        print(f"✅ [EVAL] Promptfoo run {run_id} status set to 'stopped'.")
+        return {"run_id": run_id, "status": "stopped", "message": "Evaluation stopped successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to stop evaluation: {str(e)}")
 
 @app.get("/eval/status/{run_id}", response_model=EvalStatusResponse)
 async def get_eval_status(run_id: str):
@@ -449,7 +465,7 @@ async def get_eval_report(run_id: str):
         raise HTTPException(status_code=404, detail="Report file not found")
         
     try:
-        with open(output_file, "r") as f:
+        with open(output_file, "r", encoding="utf-8") as f:
             data = json.load(f)
             
         # Parse the promptfoo JSON format into our simplified dashboard structure
@@ -496,6 +512,36 @@ async def get_eval_report(run_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to parse report: {str(e)}")
 
 
+
+@app.post("/campaigns/promptfoo_callback")
+async def handle_promptfoo_callback(
+    run_id: str = Body(...),
+    plugin_id: str = Body(...),
+    prompt: str = Body(...),
+    response: str = Body(...),
+    reason: str = Body(...)
+):
+    """
+    Receives an explicit FAIL grading from Promptfoo and injects it into the Audit Stream 
+    as an EXPLOIT event. This bypasses the default monitor which assumes any 
+    'PERMISSION DENIED' is a PASS.
+    """
+    # Create a synthetic ScenarioRun for the monitor
+    failure_run = ScenarioRun(
+        id=f"pfoo-fail-{uuid.uuid4().hex[:8]}",
+        mode=Mode.B,
+        category=plugin_id.upper(),
+        payload_id="PROMPTFOO_EVAL",
+        container_id="sandbox-promptfoo",
+        outcome=Outcome.FAIL,
+        evidence=Evidence(
+            input_prompt=prompt,
+            stdout=response,
+            sensitive_events=[f"Promptfoo Grading Failed: {reason}"]
+        )
+    )
+    monitor.record_scenario(failure_run)
+    return {"status": "recorded"}
 
 @app.get("/reports/summary")
 async def get_summary():
@@ -686,7 +732,7 @@ async def export_report():
     <table><thead><tr><th>Timestamp</th><th>Type</th><th>Category</th><th>Severity</th><th>Result</th><th>Summary</th></tr></thead>
     <tbody>{rows}</tbody></table></body></html>"""
 
-    # NEW: Also save a persistent copy in the workspace/reports directory
+    # Save persistent copy in the workspace/reports directory
     report_filename = f"aegis-report-{int(time.time())}.html"
     report_path = os.path.join("..", "workspace", "reports", report_filename)
     try:
