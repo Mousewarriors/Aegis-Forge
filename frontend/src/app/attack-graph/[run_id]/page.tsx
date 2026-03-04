@@ -41,6 +41,15 @@ const AttackerNode = ({ data }: any) => (
 const TargetResponseNode = ({ data }: any) => {
   const isIntentShift = data.is_intent_shift;
   const isBlocked = data.is_blocked;
+  const defenseSignal = String(data.defense_signal || '');
+  const signalClass =
+    defenseSignal === 'ENFORCED_BLOCK'
+      ? 'text-red-300 bg-red-500/20 border-red-500/40'
+      : defenseSignal === 'HIGH_RISK_FLAG'
+        ? 'text-amber-300 bg-amber-500/20 border-amber-500/40'
+        : defenseSignal === 'MODEL_REFUSAL'
+          ? 'text-cyan-300 bg-cyan-500/20 border-cyan-500/40'
+          : 'text-slate-300 bg-slate-500/20 border-slate-500/30';
 
   return (
     <div className={`px-4 py-3 rounded-xl border transition-all duration-300 shadow-lg ${isIntentShift ? 'bg-amber-950/40 border-amber-500 shadow-amber-500/20' : 'bg-slate-900/90 border-slate-700 hover:border-cyan-500/60'}`}>
@@ -53,6 +62,11 @@ const TargetResponseNode = ({ data }: any) => {
       <div className="text-xs text-slate-300 font-mono line-clamp-3 leading-relaxed max-w-[200px]">
         {data.content}
       </div>
+      {defenseSignal && defenseSignal !== 'NONE' && (
+        <div className={`mt-2 inline-flex items-center rounded-md border px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest ${signalClass}`}>
+          {defenseSignal.replace(/_/g, ' ')}
+        </div>
+      )}
 
       {data.verdicts && data.verdicts.length > 0 && (
         <div className="mt-2 pt-2 border-t border-slate-800 space-y-1">
@@ -60,9 +74,17 @@ const TargetResponseNode = ({ data }: any) => {
             <div key={idx} className="flex items-center gap-1.5 text-[9px]">
               <div className={`w-1.5 h-1.5 rounded-full ${v.risk_level === 'ALLOW' ? 'bg-green-500' : v.risk_level === 'BLOCK' ? 'bg-cyan-500' : 'bg-red-500'}`} />
               <span className="text-slate-500 uppercase font-bold">{v.risk_level}</span>
-              <span className="text-slate-400 truncate">{v.reason}</span>
+              <span className="text-slate-400 truncate">{v.reason || v.rationale}</span>
             </div>
           ))}
+        </div>
+      )}
+      {data.defense_stage && (
+        <div className="mt-2 pt-2 border-t border-slate-800">
+          <div className="text-[9px] text-cyan-400 uppercase font-bold tracking-widest">{String(data.defense_stage).replace(/_/g, ' ')}</div>
+          {data.defense_summary && (
+            <div className="text-[9px] text-slate-400 mt-1 line-clamp-3">{data.defense_summary}</div>
+          )}
         </div>
       )}
       <Handle type="source" position={Position.Bottom} className="!bg-slate-600" />
@@ -88,6 +110,7 @@ export default function AttackGraphPage() {
   const [summary, setSummary] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedNode, setSelectedNode] = useState<any>(null);
 
   const fetchGraph = useCallback(async () => {
     try {
@@ -100,12 +123,13 @@ export default function AttackGraphPage() {
       const mappedNodes = data.nodes.map((n: any) => ({
         ...n,
         type: n.data.node_type === 'Attacker Prompt' ? 'Attacker Prompt' : 'Target Response',
-        style: { width: 240 }
+        style: { width: 280 }
       }));
 
       setNodes(mappedNodes);
       setEdges(data.edges);
       setSummary(data.summary);
+      setSelectedNode(null);
       setError(null);
     } catch (err: any) {
       console.error(err);
@@ -211,10 +235,17 @@ export default function AttackGraphPage() {
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
+          onNodeClick={(_, node) => setSelectedNode(node)}
           nodeTypes={nodeTypes}
           colorMode="dark"
+          onlyRenderVisibleElements
+          panOnScroll
+          panOnDrag
+          zoomOnScroll
+          minZoom={0.1}
+          maxZoom={2}
           fitView
-          fitViewOptions={{ padding: 0.2 }}
+          fitViewOptions={{ padding: 0.25, minZoom: 0.1, maxZoom: 1.2 }}
         >
           <Background color="#1e293b" gap={20} />
           <Controls className="!bg-slate-900 !border-slate-800 !fill-slate-400" />
@@ -242,6 +273,18 @@ export default function AttackGraphPage() {
             <span className="text-[10px] font-bold text-slate-400 uppercase">Target Response</span>
           </div>
           <div className="flex items-center gap-3">
+            <div className="w-3 h-3 rounded bg-red-900/40 border border-red-500/50" />
+            <span className="text-[10px] font-bold text-slate-400 uppercase">Enforced Block</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-3 h-3 rounded bg-amber-900/40 border border-amber-500/50" />
+            <span className="text-[10px] font-bold text-slate-400 uppercase">High-Risk Flag</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-3 h-3 rounded bg-cyan-900/40 border border-cyan-300/70" />
+            <span className="text-[10px] font-bold text-slate-400 uppercase">Model Refusal</span>
+          </div>
+          <div className="flex items-center gap-3">
             <div className="w-3 h-3 rounded bg-amber-500 border border-amber-400" />
             <span className="text-[10px] font-bold text-slate-400 uppercase">Intent Shift</span>
           </div>
@@ -257,11 +300,67 @@ export default function AttackGraphPage() {
             <Info className="w-4 h-4" />
             <span className="text-[11px] font-bold uppercase tracking-wider">Attack Analysis</span>
           </div>
-          <p className="text-[10px] leading-relaxed text-slate-400">
-            The graph visualizes the multi-hop progression from initial greeting to system compromise.
+            <p className="text-[10px] leading-relaxed text-slate-400">
+            The graph visualizes the attack chain and labels each target turn as enforced block, high-risk flag, or model refusal.
             <span className="text-amber-500 font-bold ml-1">Intent Shift</span> marks the pivot into adversarial behavior.
             <span className="text-red-500 font-bold ml-1">PONR</span> marks the first successful bypass.
-          </p>
+            </p>
+        </div>
+
+        {/* Node Inspector */}
+        <div className="absolute top-24 right-6 w-[420px] max-w-[45vw] max-h-[70vh] overflow-y-auto p-4 bg-slate-900/90 border border-slate-800 rounded-2xl backdrop-blur-md z-10 shadow-2xl">
+          {!selectedNode ? (
+            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">
+              Click a node to inspect full details
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] text-cyan-400 uppercase tracking-widest font-bold">{selectedNode?.data?.label || selectedNode?.id}</p>
+                <button
+                  onClick={() => setSelectedNode(null)}
+                  className="text-[10px] text-slate-500 hover:text-slate-300 uppercase tracking-widest font-bold"
+                >
+                  Clear
+                </button>
+              </div>
+              {selectedNode?.data?.defense_stage && (
+                <div className="text-[10px] text-cyan-300 font-bold uppercase tracking-widest">
+                  {String(selectedNode.data.defense_stage).replace(/_/g, ' ')}
+                </div>
+              )}
+              {selectedNode?.data?.defense_signal && selectedNode?.data?.defense_signal !== 'NONE' && (
+                <div className="text-[10px] text-slate-200 font-bold uppercase tracking-widest">
+                  Signal: {String(selectedNode.data.defense_signal).replace(/_/g, ' ')}
+                </div>
+              )}
+              {selectedNode?.data?.defense_summary && (
+                <div className="text-[11px] text-slate-300 leading-relaxed bg-slate-950/70 border border-white/5 rounded-xl p-3 whitespace-pre-wrap break-words">
+                  {selectedNode.data.defense_summary}
+                </div>
+              )}
+              {selectedNode?.data?.content && (
+                <div className="text-[11px] text-slate-300 leading-relaxed bg-slate-950/70 border border-white/5 rounded-xl p-3 whitespace-pre-wrap break-words">
+                  {selectedNode.data.content}
+                </div>
+              )}
+              {selectedNode?.data?.verdicts?.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Semantic Verdicts</p>
+                  {selectedNode.data.verdicts.map((verdict: any, idx: number) => (
+                    <div key={idx} className="bg-slate-950/70 border border-white/5 rounded-xl p-3">
+                      <div className="text-[10px] uppercase tracking-widest font-bold text-slate-400">
+                        {String(verdict.risk_level || 'unknown')} {verdict.source ? `• ${String(verdict.source)}` : ''}
+                      </div>
+                      <div className="text-[11px] text-slate-300 mt-1 whitespace-pre-wrap break-words">
+                        {verdict.rationale || verdict.reason || 'No rationale available'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </main>
     </div>

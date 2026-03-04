@@ -1,60 +1,74 @@
 import json
-import httpx
+import os
 import time
-import asyncio
+from urllib import error, request
 
-async def call_api(prompt, options, context):
-    """
-    Custom Provider API for Promptfoo to integrate with Aegis Forge.
-    It targets the Agent mode, directly feeding the payload to the target agent
-    to evaluate its guardrails and tool execution policies.
-    """
-    url = "http://localhost:8000/campaigns/run"
-    
-    # Extract the plugin name from context if available
+
+def _extract_plugin_id(context):
     plugin_id = "PROMPTFOO EVAL"
     if context and isinstance(context, dict):
-        # Promptfoo redteam often passes pluginId in vars
         vars_dict = context.get("vars", {})
         if "pluginId" in vars_dict:
             plugin_id = vars_dict["pluginId"]
-            
+        elif "test" in context and isinstance(context["test"], dict):
+            metadata = context["test"].get("metadata", {})
+            plugin_id = metadata.get("pluginId", plugin_id)
+    return plugin_id
+
+
+def call_api(prompt, options, context):
+    """
+    Custom Provider API for Promptfoo to integrate with Aegis Forge.
+    Uses a plain stdlib HTTP request so it runs reliably inside Promptfoo's
+    Python worker on Windows.
+    """
+    os.environ.pop("SSLKEYLOGFILE", None)
+    url = "http://localhost:8000/campaigns/run"
+    plugin_id = _extract_plugin_id(context)
+    hardened_flag = os.getenv("AEGIS_PROMPTFOO_HARDENED")
+    session_hardened = None
+    if hardened_flag is not None:
+        session_hardened = hardened_flag.strip().lower() in {"1", "true", "yes", "on"}
+    proxy_flag = os.getenv("AEGIS_PROMPTFOO_PROXY_ENABLED")
+    proxy_enabled = True
+    if proxy_flag is not None:
+        proxy_enabled = proxy_flag.strip().lower() in {"1", "true", "yes", "on"}
+    promptfoo_run_id = os.getenv("AEGIS_PROMPTFOO_RUN_ID")
     payload = {
         "name": f"Promptfoo Eval {int(time.time())}",
         "target_agent_type": "CLI Agent",
         "attack_category": plugin_id.upper() if plugin_id else "PROMPTFOO EVAL",
-        "mode": "REAL_AGENT", # Target the agent directly
+        "mode": "REAL_AGENT",
         "max_turns": 1,
+        "custom_payload": prompt,
+        "record_in_audit_stream": False,
+        "session_hardened": session_hardened,
+        "proxy_enabled": proxy_enabled,
+        "promptfoo_run_id": promptfoo_run_id,
+        "promptfoo_plugin_id": plugin_id,
     }
 
-    # Looking at main.py:
-    # @app.post("/campaigns/run")
-    # campaign: AttackCampaign
-    # But wait, main.py gets the payload from payload_gen based on attack_category.
-    # We need a way to send an arbitrary payload to the target agent for promptfoo.
-    # Let's create a dedicated endpoint in main.py for raw prompt evaluation, or just use the agent_loop directly.
-    # For now, let's assume we modify main.py to accept `custom_payload` in the AttackCampaign model.
-    
-    payload["custom_payload"] = prompt
-    
+    body = json.dumps(payload).encode("utf-8")
+    req = request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            
-            # The agent mode returns a ScenarioRun. We need to extract the target's response.
+        with request.urlopen(req, timeout=60) as response:
+            data = json.loads(response.read().decode("utf-8"))
             evidence = data.get("evidence", {})
             output = evidence.get("stdout", "") or evidence.get("stderr", "")
-            
-            # If the policy engine blocked it, it might just say "Policy Blocked..." in the output or stderr.
-            # We return this output to promptfoo for evaluation against the assertions.
             return {"output": output}
-            
-    except httpx.HTTPStatusError as e:
-        error_detail = e.response.text
-        print(f"HTTP Error {e.response.status_code}: {error_detail}")
-        return {"error": f"HTTP {e.response.status_code}: {error_detail}"}
+    except error.HTTPError as e:
+        try:
+            error_detail = e.read().decode("utf-8")
+        except Exception:
+            error_detail = str(e)
+        print(f"HTTP Error {e.code}: {error_detail}")
+        return {"error": f"HTTP {e.code}: {error_detail}"}
     except Exception as e:
         return {"error": str(e)}
 
@@ -69,7 +83,7 @@ def _report_failure_to_backend(plugin_id: str, prompt: str, output: str, reason:
 
 # Wrapper for synchronous execution if Promptfoo requires it
 def call_api_sync(prompt, options, context):
-    return asyncio.run(call_api(prompt, options, context))
+    return call_api(prompt, options, context)
 
 if __name__ == "__main__":
     import sys

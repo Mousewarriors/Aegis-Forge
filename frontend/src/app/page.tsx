@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { Terminal, Shield, AlertTriangle, Play, BarChart3, List, Activity, Cpu, Zap, Eye, Info, Radio, Layers, Download, FlaskConical, HelpCircle, Lock, Unlock, Globe, Box, Target } from 'lucide-react';
+import { Terminal, Shield, AlertTriangle, Play, BarChart3, List, Activity, Cpu, Zap, Eye, Info, Radio, Layers, Download, FlaskConical, HelpCircle, Lock, Unlock, Globe, Box, Target, Trash2 } from 'lucide-react';
 
 const TOOLTIPS = {
   MODE_SIM: "Direct Simulation: Bypasses the LLM and runs a pre-defined shell command directly in the sandbox. Primarily used to test Firewall rules and SysWatch monitoring.",
   MODE_AGENT: "Single-Shot Test: Sends the attack prompt to the real Ollama model. Tests if the model's base training is sufficient to refuse malicious tool calls.",
   MODE_INQUISITOR: "Adversarial Hunt: Uses a secondary Red-Team agent to dynamically probe the target over multiple turns. Finds complex bypasses that single prompts miss.",
   HARDENING: "System Prompt Injection: Applies a strict 'Security-First' set of constraints to the target agent. Tests if the model can be protected via persona enforcement.",
+  INQ_HARDENING: "Session-only firewall for Inquisitor mode. This forces the proxy and policy engine into a hardened path for the Inquisitor run without changing Promptfoo or other modes.",
   CATEGORY: "The specific threat vector being simulated. Each category contains a library of unique adversarial payloads.",
   AUDIT: "Deep Scanning: Automated execution of multiple threat vectors to provide a comprehensive Risk Score for the target configuration.",
   HARDENING_SCAN: "Strategy Probing: Specifically tests the target against common psychological bypass techniques like Piggybacking or Hypothetical Framing.",
@@ -39,6 +40,85 @@ const InfoTooltip = ({ text, side = 'top', align = 'right' }: { text: string; si
   );
 };
 
+const SEMANTIC_GUARD_STYLES: Record<string, string> = {
+  CRITICAL: 'bg-rose-700/20 text-rose-200 border border-rose-700/30',
+  BLOCK: 'bg-rose-500/10 text-rose-300 border border-rose-500/20',
+  WARN: 'bg-amber-500/10 text-amber-300 border border-amber-500/20',
+  ALLOW: 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20',
+  UNKNOWN: 'bg-slate-500/10 text-slate-300 border border-slate-500/20',
+};
+
+const formatSemanticGuardText = (value?: string) =>
+  (value || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+
+const getDefenseCopy = (evidence: any) => {
+  const stage = evidence?.defense_stage;
+  switch (stage) {
+    case 'INPUT_BLOCKED':
+      return {
+        title: 'Input Gate Blocked',
+        body: evidence?.defense_summary || 'The proxy blocked the inbound prompt before the target model completed a normal response.',
+      };
+    case 'TOOL_BLOCKED':
+      return {
+        title: 'Tool Execution Blocked',
+        body: evidence?.defense_summary || 'The model reached a prohibited tool path, and the policy engine blocked execution.',
+      };
+    case 'GUARDRAIL_BLOCKED':
+      return {
+        title: 'Guardrail Output Blocked',
+        body: evidence?.defense_summary || 'A downstream guardrail blocked or rewrote the response before it was returned.',
+      };
+    case 'MODEL_REFUSAL':
+      return {
+        title: 'Model Refused Natively',
+        body: evidence?.defense_summary || 'The target model appears to have refused without the proxy in the middle.',
+      };
+    case 'DEFENDED_REFUSAL':
+      return {
+        title: 'Defended Refusal',
+        body: evidence?.defense_summary || 'The final response is a refusal, but the proxy and guardrails may have strengthened it.',
+      };
+    default:
+      return {
+        title: 'Defense Layer Activated',
+        body: 'The run was neutralized, but the exact defense layer was not classified.',
+      };
+  }
+};
+
+const getEnforcementAttribution = (mode: string, evidence: any) => {
+  const events = (evidence?.sensitive_events || []) as string[];
+  const stdout = String(evidence?.stdout || '');
+  const inputBlocked = stdout.includes('Input Blocked:') || events.some((ev) => String(ev).includes('Input Blocked:'));
+  const policyBlocked = events.some((ev) => String(ev).includes('Policy Blocked:'));
+
+  if (inputBlocked || policyBlocked) {
+    if (mode === 'SIMULATED') {
+      return {
+        title: 'Enforcement Source: Deterministic Policy Engine',
+        body: 'No target AI agent was used on this run. The payload was screened and blocked by policy before sandbox command execution.',
+      };
+    }
+    if (mode === 'REAL_AGENT') {
+      return {
+        title: 'Enforcement Source: Policy Engine + AI Agent Path',
+        body: 'A target AI agent was used, but the final block decision still came from the deterministic policy/proxy layer.',
+      };
+    }
+    if (mode === 'INQUISITOR') {
+      return {
+        title: 'Enforcement Source: Policy Engine in Inquisitor Session',
+        body: 'Inquisitor generated adversarial prompts via AI, while policy/proxy made the execution block decision.',
+      };
+    }
+  }
+
+  return null;
+};
+
 export default function Dashboard() {
   const [stats, setStats] = useState({
     total_attacks: 0,
@@ -61,8 +141,12 @@ export default function Dashboard() {
   const [strategyStats, setStrategyStats] = useState<any>({});
   const [hardenResult, setHardenResult] = useState<any>(null);
   const [hardening, setHardening] = useState(false);
+  const [clearingAudit, setClearingAudit] = useState(false);
+  const [analyzingAudit, setAnalyzingAudit] = useState(false);
+  const [auditAnalysis, setAuditAnalysis] = useState<any>(null);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [agentHardened, setAgentHardened] = useState(false);
+  const [inquisitorHardened, setInquisitorHardened] = useState(false);
   const [intelligenceFeed, setIntelligenceFeed] = useState<any>(null);
 
   // Semantic Guardrail State
@@ -121,7 +205,7 @@ export default function Dashboard() {
     fetchAvailableScans();
     fetchStrategyStats();
     fetchAgentStatus();
-    const interval = setInterval(() => { fetchStats(); fetchStrategyStats(); }, 5000);
+    const interval = setInterval(() => { fetchStats(); fetchStrategyStats(); }, 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -132,7 +216,8 @@ export default function Dashboard() {
   // Dynamic Information & Predictive Intelligence
   useEffect(() => {
     const formattedCat = category.replace(/_/g, ' ').toUpperCase();
-    const hardeningLabel = agentHardened ? ' (HARDENED)' : '';
+    const activeHardening = mode === 'INQUISITOR' ? inquisitorHardened : agentHardened;
+    const hardeningLabel = activeHardening ? ' (HARDENED)' : '';
     const newName = `${mode}: ${formattedCat}${hardeningLabel}`;
     setCampaignName(newName);
 
@@ -140,10 +225,10 @@ export default function Dashboard() {
     const feed = {
       vector: mode === 'INQUISITOR' ? 'Adversarial Escalation Loop' : mode === 'REAL_AGENT' ? 'Single-Shot Model Probe' : 'Direct Sandbox Simulation',
       isolation: '100% Isolated Docker Environment',
-      defense: agentHardened ? 'Policy Engine + System Hardening' : 'Policy Engine Standard'
+      defense: activeHardening ? 'Policy Engine + System Hardening' : 'Policy Engine Standard'
     };
     setIntelligenceFeed(feed);
-  }, [mode, category, agentHardened]);
+  }, [mode, category, agentHardened, inquisitorHardened]);
 
   const runCampaign = async () => {
     setLoading(true);
@@ -184,6 +269,7 @@ export default function Dashboard() {
           attack_category: category,
           mode: 'INQUISITOR',
           max_turns: 5,
+          session_hardened: inquisitorHardened,
           guardrail_mode: guardrailMode,
           guardrail_model: guardrailModel,
           guardrail_context_turns: contextTurns
@@ -222,7 +308,7 @@ export default function Dashboard() {
       const res = await fetch('http://localhost:8000/campaigns/harden', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Hardening Scan', attack_category: category, mode: 'INQUISITOR', max_turns: 1 })
+        body: JSON.stringify({ name: 'Hardening Scan', attack_category: category, mode: 'INQUISITOR', max_turns: 1, session_hardened: inquisitorHardened })
       });
       setHardenResult(await res.json());
     } catch (err) { console.error('Hardening scan failed', err); }
@@ -256,6 +342,10 @@ export default function Dashboard() {
     }
   };
 
+  const toggleInquisitorHardening = () => {
+    setInquisitorHardened(current => !current);
+  };
+
   const runAutomatedScan = async () => {
     setScanning(true);
     setScanResult(null);
@@ -273,6 +363,41 @@ export default function Dashboard() {
       setScanning(false);
     }
   };
+
+  const clearAuditAndStats = async () => {
+    setClearingAudit(true);
+    try {
+      await fetch('http://localhost:8000/stats/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      setLastResult(null);
+      setInquisitorResult(null);
+      setScanResult(null);
+      setHardenResult(null);
+      setAuditAnalysis(null);
+      await Promise.all([fetchStats(), fetchStrategyStats()]);
+    } catch (err) {
+      console.error("Failed to clear audit stream", err);
+    } finally {
+      setClearingAudit(false);
+    }
+  };
+
+  const analyzeAuditStream = async () => {
+    setAnalyzingAudit(true);
+    try {
+      const res = await fetch('http://localhost:8000/stats/analyze');
+      const data = await res.json();
+      setAuditAnalysis(data);
+    } catch (err) {
+      console.error("Failed to analyze audit stream", err);
+    } finally {
+      setAnalyzingAudit(false);
+    }
+  };
+
+  const lastResultAttribution = lastResult ? getEnforcementAttribution(lastResult.mode, lastResult.evidence) : null;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-8 font-sans selection:bg-cyan-500/30">
@@ -375,25 +500,29 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Agent Hardening Toggle */}
-              <div className={`rounded-2xl p-5 flex items-center justify-between group transition-all duration-500 ${agentHardened ? 'bg-amber-500/10 border-2 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.1)]' : 'bg-slate-950/50 border-2 border-white/5 shadow-none'}`}>
+              {/* Hardening Toggle */}
+              <div className={`rounded-2xl p-5 flex items-center justify-between group transition-all duration-500 ${(mode === 'INQUISITOR' ? inquisitorHardened : agentHardened) ? 'bg-amber-500/10 border-2 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.1)]' : 'bg-slate-950/50 border-2 border-white/5 shadow-none'}`}>
                 <div className="flex items-center gap-4">
-                  <div className={`p-3 rounded-xl transition-all duration-500 ${agentHardened ? 'bg-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.4)]' : 'bg-slate-800'}`}>
-                    <Shield className={`w-5 h-5 ${agentHardened ? 'text-slate-950' : 'text-slate-500'}`} />
+                  <div className={`p-3 rounded-xl transition-all duration-500 ${(mode === 'INQUISITOR' ? inquisitorHardened : agentHardened) ? 'bg-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.4)]' : 'bg-slate-800'}`}>
+                    <Shield className={`w-5 h-5 ${(mode === 'INQUISITOR' ? inquisitorHardened : agentHardened) ? 'text-slate-950' : 'text-slate-500'}`} />
                   </div>
                   <div>
                     <div className="flex items-center gap-1">
-                      <label className="text-xs font-black text-slate-100 uppercase tracking-widest block">Agent Hardening</label>
-                      <InfoTooltip text={TOOLTIPS.HARDENING} align="left" />
+                      <label className="text-xs font-black text-slate-100 uppercase tracking-widest block">{mode === 'INQUISITOR' ? 'Inquisitor Hardening' : 'Agent Hardening'}</label>
+                      <InfoTooltip text={mode === 'INQUISITOR' ? TOOLTIPS.INQ_HARDENING : TOOLTIPS.HARDENING} align="left" />
                     </div>
-                    <p className={`text-[10px] font-medium ${agentHardened ? 'text-amber-400' : 'text-slate-500'}`}>{agentHardened ? 'STRICT PERSONA ACTIVE' : 'NO GUARDRAILS APPLIED'}</p>
+                    <p className={`text-[10px] font-medium ${(mode === 'INQUISITOR' ? inquisitorHardened : agentHardened) ? 'text-amber-400' : 'text-slate-500'}`}>
+                      {mode === 'INQUISITOR'
+                        ? (inquisitorHardened ? 'SESSION FIREWALL ACTIVE' : 'SESSION HARDENING OFF')
+                        : (agentHardened ? 'STRICT PERSONA ACTIVE' : 'NO GUARDRAILS APPLIED')}
+                    </p>
                   </div>
                 </div>
                 <button
-                  onClick={toggleAgentHardening}
-                  className={`w-12 h-6 rounded-full relative transition-all duration-300 ${agentHardened ? 'bg-amber-500' : 'bg-slate-700'}`}
+                  onClick={mode === 'INQUISITOR' ? toggleInquisitorHardening : toggleAgentHardening}
+                  className={`w-12 h-6 rounded-full relative transition-all duration-300 ${(mode === 'INQUISITOR' ? inquisitorHardened : agentHardened) ? 'bg-amber-500' : 'bg-slate-700'}`}
                 >
-                  <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-lg transition-all transform ${agentHardened ? 'translate-x-7' : 'translate-x-1'}`} />
+                  <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-lg transition-all transform ${(mode === 'INQUISITOR' ? inquisitorHardened : agentHardened) ? 'translate-x-7' : 'translate-x-1'}`} />
                 </button>
               </div>
 
@@ -571,6 +700,24 @@ export default function Dashboard() {
               <h2 className="text-lg font-black flex items-center gap-3 text-emerald-400 uppercase tracking-tighter">
                 <Shield className="w-5 h-5 text-emerald-500" /> System Stats
               </h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={analyzeAuditStream}
+                  disabled={analyzingAudit}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl border border-cyan-500/30 text-cyan-300 hover:text-cyan-200 hover:border-cyan-400 bg-cyan-500/5 hover:bg-cyan-500/10 text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-60"
+                >
+                  {analyzingAudit ? <Activity className="animate-spin w-3.5 h-3.5" /> : <BarChart3 className="w-3.5 h-3.5" />}
+                  Analyze Audit Stream
+                </button>
+                <button
+                  onClick={clearAuditAndStats}
+                  disabled={clearingAudit}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl border border-rose-500/30 text-rose-300 hover:text-rose-200 hover:border-rose-400 bg-rose-500/5 hover:bg-rose-500/10 text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-60"
+                >
+                  {clearingAudit ? <Activity className="animate-spin w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
+                  Clear Audit + Stats
+                </button>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-slate-950 p-4 rounded-2xl border border-white/5">
@@ -582,6 +729,71 @@ export default function Dashboard() {
                 <p className="text-2xl font-black text-emerald-400 tabular-nums">{stats.failed_attempts}</p>
               </div>
             </div>
+            {auditAnalysis && (
+              <div className="mt-5 p-5 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 space-y-4 animate-in fade-in duration-300">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black text-cyan-300 uppercase tracking-widest">Campaign Status Analysis</p>
+                  <span className={`text-[10px] font-black px-2.5 py-1 rounded-lg ${
+                    auditAnalysis.campaign_status?.severity === 'CRITICAL'
+                      ? 'bg-rose-500 text-white'
+                      : auditAnalysis.campaign_status?.severity === 'HIGH'
+                        ? 'bg-orange-500 text-white'
+                        : auditAnalysis.campaign_status?.severity === 'MEDIUM'
+                          ? 'bg-amber-500 text-slate-950'
+                          : 'bg-emerald-500 text-slate-950'
+                  }`}>
+                    {auditAnalysis.campaign_status?.label || 'NO_DATA'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-300 leading-relaxed font-medium">
+                  {auditAnalysis.campaign_status?.summary || 'No campaign summary available.'}
+                </p>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-slate-950/70 border border-white/5 rounded-xl p-3">
+                    <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest">Runs</p>
+                    <p className="text-sm font-black text-white">{auditAnalysis.campaign_status?.total_runs ?? 0}</p>
+                  </div>
+                  <div className="bg-slate-950/70 border border-white/5 rounded-xl p-3">
+                    <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest">Exploits</p>
+                    <p className="text-sm font-black text-rose-400">{auditAnalysis.campaign_status?.successful_exploits ?? 0}</p>
+                  </div>
+                  <div className="bg-slate-950/70 border border-white/5 rounded-xl p-3">
+                    <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest">Rate</p>
+                    <p className="text-sm font-black text-cyan-300">
+                      {typeof auditAnalysis.campaign_status?.exploit_rate === 'number'
+                        ? `${(auditAnalysis.campaign_status.exploit_rate * 100).toFixed(1)}%`
+                        : '0.0%'}
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Priority Hardening Areas</p>
+                  {(auditAnalysis.recommendations || []).length === 0 && (
+                    <p className="text-[11px] text-slate-500">No recommendations generated yet.</p>
+                  )}
+                  {(auditAnalysis.recommendations || []).map((rec: any, idx: number) => (
+                    <div key={idx} className="bg-slate-950/70 border border-white/5 rounded-xl p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[11px] font-black text-white">{rec.area}</p>
+                        <span className={`text-[9px] font-black px-2 py-0.5 rounded ${
+                          rec.priority === 'CRITICAL'
+                            ? 'bg-rose-500 text-white'
+                            : rec.priority === 'HIGH'
+                              ? 'bg-orange-500 text-white'
+                              : rec.priority === 'MEDIUM'
+                                ? 'bg-amber-500 text-slate-950'
+                                : 'bg-emerald-500 text-slate-950'
+                        }`}>
+                          {rec.priority}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-2"><span className="font-black text-slate-500 uppercase tracking-widest">Evidence:</span> {rec.evidence}</p>
+                      <p className="text-[10px] text-cyan-300 mt-1"><span className="font-black text-cyan-500 uppercase tracking-widest">Action:</span> {rec.action}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Automated Audit Section */}
@@ -593,9 +805,18 @@ export default function Dashboard() {
               <div className="p-1.5 bg-purple-500 rounded-lg shadow-[0_0_15px_rgba(168,85,247,0.4)]">
                 <Shield className="w-4 h-4 text-slate-950 fill-current" />
               </div>
-              Defense Metrics
+              Defense Metrics Scope
             </h2>
             <div className="space-y-4">
+              <div className="bg-purple-500/5 border border-purple-500/20 rounded-2xl p-4 space-y-2">
+                <p className="text-[10px] font-black text-purple-300 uppercase tracking-widest">What Each Test Measures</p>
+                <p className="text-[10px] text-slate-300 leading-relaxed">
+                  Deep Scan: deterministic simulated harness (no target AI reasoning path). Tests policy/proxy blocks, tool allowlist, and sandbox telemetry.
+                </p>
+                <p className="text-[10px] text-slate-300 leading-relaxed">
+                  Strategy Probe: AI Inquisitor probes the target agent over turns; policy/proxy still decides execution allow/block.
+                </p>
+              </div>
               <div>
                 <label className="text-[10px] font-black text-slate-500 uppercase mb-2 block tracking-widest">Library Selection</label>
                 <select
@@ -689,6 +910,9 @@ export default function Dashboard() {
                 <div
                   key={i}
                   onClick={() => {
+                    if (entry.type === 'promptfoo_eval') {
+                      return;
+                    }
                     if (entry.type === 'inquisitor') {
                       setInquisitorResult(entry.full_run);
                       setLastResult(null);
@@ -707,12 +931,27 @@ export default function Dashboard() {
                     <span className="text-slate-600 tabular-nums font-bold">
                       {new Date(entry.timestamp * 1000).toLocaleTimeString()}
                     </span>
-                    <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-widest shadow-sm ${entry.success ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
-                      }`}>
-                      {entry.success ? 'EXPLOIT FOUND' : 'NEUTRALIZED'}
-                    </span>
+                    {entry.type === 'promptfoo_eval' ? (
+                      <span className="px-2 py-0.5 rounded text-[9px] font-black tracking-widest shadow-sm bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+                        {entry.eval_status === 'running' ? 'PROMPTFOO RUNNING' : String(entry.eval_status || 'PROMPTFOO').toUpperCase()}
+                      </span>
+                    ) : entry.type === 'promptfoo_live' ? (
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-widest shadow-sm ${entry.success ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'}`}>
+                        {entry.success ? 'PROMPTFOO LIVE FAIL' : 'PROMPTFOO LIVE PASS'}
+                      </span>
+                    ) : (
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-widest shadow-sm ${entry.success ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                        }`}>
+                        {entry.success ? 'EXPLOIT FOUND' : 'NEUTRALIZED'}
+                      </span>
+                    )}
                     {entry.type === 'inquisitor' && (
                       <span className="px-2 py-0.5 rounded text-[9px] font-black bg-amber-500/10 text-amber-300 border border-amber-500/20 tracking-widest">⚡ INQUISITOR</span>
+                    )}
+                    {entry.type === 'promptfoo_eval' && (
+                      <span className="px-2 py-0.5 rounded text-[9px] font-black bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 tracking-widest">
+                        {Math.round((entry.progress || 0) * 100)}%
+                      </span>
                     )}
                     {entry.exploit_severity && (
                       <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-widest ${entry.exploit_severity === 'CRITICAL' ? 'bg-rose-700/20 text-rose-300 border border-rose-700/30' :
@@ -720,9 +959,30 @@ export default function Dashboard() {
                           'bg-yellow-500/10 text-yellow-300 border border-yellow-500/20'
                         }`}>{entry.exploit_severity} SEVERITY</span>
                     )}
-                    <span className="text-slate-500 text-[10px] font-bold uppercase tracking-tighter">{entry.category?.replace(/_/g, ' ')}</span>
+                    {entry.semantic_guard_summary?.highest_risk && (
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-widest ${SEMANTIC_GUARD_STYLES[entry.semantic_guard_summary.highest_risk] || SEMANTIC_GUARD_STYLES.UNKNOWN}`}>
+                        SG {entry.semantic_guard_summary.highest_risk}
+                      </span>
+                    )}
+                    <span className="text-slate-500 text-[10px] font-bold uppercase tracking-tighter">
+                      {entry.type === 'promptfoo_eval'
+                        ? `${entry.phase || 'running'}${entry.eta_seconds !== null && entry.eta_seconds !== undefined ? ` • ~${entry.eta_seconds}s` : ''}`
+                        : entry.type === 'promptfoo_live'
+                        ? (entry.phase || 'Awaiting official Promptfoo grade')
+                        : entry.category?.replace(/_/g, ' ')}
+                    </span>
                   </div>
                   <p className="text-slate-400 truncate italic font-medium">"{entry.output_snippet}"</p>
+                  {entry.semantic_guard_summary?.headline && (
+                    <p className="mt-1 text-[10px] text-cyan-300 font-bold uppercase tracking-[0.16em] truncate">
+                      Semantic Guard: {entry.semantic_guard_summary.headline}
+                    </p>
+                  )}
+                  {entry.semantic_guard_summary?.latest_rationale && (
+                    <p className="mt-1 text-[10px] text-slate-500 truncate">
+                      {formatSemanticGuardText(entry.semantic_guard_summary.latest_source)}: {entry.semantic_guard_summary.latest_rationale}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
@@ -893,6 +1153,14 @@ export default function Dashboard() {
                     </div>
                     <h3 className="text-3xl font-black text-white tracking-tighter uppercase mb-2">{lastResult.payload_id}</h3>
                     <p className="text-slate-400 text-xs font-bold tracking-widest uppercase opacity-70">Target Harness: {lastResult.mode}</p>
+                    {lastResult.id && (
+                      <button
+                        onClick={() => window.open(`/attack-graph/${lastResult.id}`, '_blank')}
+                        className="mt-3 flex items-center gap-1.5 text-[10px] font-black text-cyan-400 hover:text-cyan-300 transition-colors bg-cyan-400/10 px-3 py-1 rounded-full border border-cyan-400/20"
+                      >
+                        <Activity className="w-3.5 h-3.5" /> Analyze Graph
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -918,9 +1186,20 @@ export default function Dashboard() {
                           <div className="mt-4 p-5 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-[11px] font-bold text-emerald-400/90 shadow-[0_0_20px_rgba(16,185,129,0.1)] animate-in fade-in slide-in-from-top-2 duration-500">
                             <div className="flex items-center gap-3 mb-2">
                               <Shield className="w-4 h-4 text-emerald-500" />
-                              <span className="uppercase tracking-widest text-[10px]">Defense Layer Activated</span>
+                              <span className="uppercase tracking-widest text-[10px]">{getDefenseCopy(lastResult.evidence).title}</span>
                             </div>
-                            The LLM attempted a prohibited command, but the Aegis Policy Engine successfully neutralized the execution.
+                            {getDefenseCopy(lastResult.evidence).body}
+                          </div>
+                        )}
+                        {lastResultAttribution && (
+                          <div className="mt-4 p-5 bg-cyan-500/10 border border-cyan-500/20 rounded-2xl text-[11px] font-bold text-cyan-300/90 shadow-[0_0_20px_rgba(34,211,238,0.1)] animate-in fade-in slide-in-from-top-2 duration-500">
+                            <div className="flex items-center gap-3 mb-2">
+                              <Shield className="w-4 h-4 text-cyan-400" />
+                              <span className="uppercase tracking-widest text-[10px]">
+                                {lastResultAttribution.title}
+                              </span>
+                            </div>
+                            {lastResultAttribution.body}
                           </div>
                         )}
                       </div>

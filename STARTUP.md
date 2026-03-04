@@ -1,68 +1,60 @@
-## 🚀 Aegis Forge: Quick Start Guide
+## Aegis Forge: Quick Start Guide
 
-This is the **authoritative** guide for starting the Aegis Forge environment. 
+This is the authoritative guide for starting the Aegis Forge environment.
 
-### ⚡ Automated Startup (Recommended)
-Run the unified startup script to bring everything (Docker, Ollama, Backend, Frontend, Promptfoo) online automatically:
+### Automated Startup (Recommended)
+From the repo root:
+
 ```powershell
-./startup.ps1
+.\startup.ps1
 ```
 
----
+From inside `ai-pentest-researcher\aegis-forge`:
 
-## 🛠️ Manual Startup
-If you prefer to start components individually, follow these steps in order.
+```powershell
+.\startup.ps1
+```
 
-## 1. Prerequisites
-- **Docker Desktop** must be running (**WSL2 backend** required for SysWatch eBPF monitoring).
-- `quay.io/iovisor/bpftrace:latest` must be pulled:
-  ```powershell
-  docker pull quay.io/iovisor/bpftrace:latest
-  ```
-- **Ollama** must be running locally with `llama3.1:8b` pulled.
-- **Node.js 20+** installed on the host.
+## Manual Startup
 
-## 2. Start the Backend (Terminal 1)
+### 1. Prerequisites
+- Docker Desktop must be running. WSL2 is required for SysWatch eBPF monitoring.
+- Pull the bpftrace image once:
+
+```powershell
+docker pull quay.io/iovisor/bpftrace:latest
+```
+
+- Ollama must be running locally with `llama3.1:8b` available.
+- Node.js 20+ must be installed on the host.
+
+### 2. Start the Backend
+
 ```powershell
 cd d:\Agent-Container-Pentester\ai-pentest-researcher\aegis-forge\backend
-# Ensure virtualenv is active
-.\venv\Scripts\activate
-python main.py
+.\venv\Scripts\python.exe main.py
 ```
-> [!NOTE]
-> The backend automatically detects if it's running in Windows or Linux (WSL2) to coordinate SysWatch containerized probes.
 
-## 3. Start the Frontend (Terminal 2)
+The backend auto-detects whether it is running on Windows or Linux and adjusts SysWatch monitoring accordingly.
+
+### 3. Start the Frontend
+
 ```powershell
 cd d:\Agent-Container-Pentester\ai-pentest-researcher\aegis-forge\frontend
-npx next dev -p 3000 --hostname 0.0.0.0
+npm run dev
 ```
 
-## 4. Run Red Team Evaluations (Promptfoo)
-Once the servers are running, you can trigger advanced algorithmic scans:
-1. Navigate to the **Eval Matrix** page in the UI.
-2. Click **Launch Eval**.
-3. The backend will invoke `npx promptfoo redteam run` locally using your Ollama instance.
-4. **Agent Hardening:** You can toggle the "Agent Hardening" switch mid-scan to instantly update the agent's system prompt and watch the live execution block incoming adversarial payloads.
+### 4. Promptfoo Red Team Evaluations
+Once the backend and frontend are running:
 
-## 5. Access Summary
-- **App (Frontend)**: [http://localhost:3000](http://localhost:3000)
-- **Backend (API)**: [http://localhost:8000](http://localhost:8000)
-- **Ollama**: [http://localhost:11434](http://localhost:11434)
-- **Promptfoo UI**: [http://localhost:15500](http://localhost:15500)
-- **API Documentation**: [http://localhost:8000/docs](http://localhost:8000/docs)
+1. Open the Eval Matrix page in the UI.
+2. Click `Launch Eval`.
+3. The backend runs `promptfoo redteam run` locally against your Ollama instance.
+4. You can toggle Agent Hardening mid-scan to update the agent system prompt during the run.
 
----
-
-## 🧠 Current Project State (2026-03-01)
-
-### Core Integration — Promptfoo
-Integrated Promptfoo as a native bencharking suite. The backend (FastAPI) manages `promptfoo` subprocesses, while the frontend provides a real-time vulnerability matrix visualization.
-
-### SysWatch — Kernel Monitoring
-Enabled eBPF-based syscall monitoring for agent containers. When running on Windows, the system automatically falls back to a **containerized bpftrace probe** inside Docker (WSL2) to maintain visibility into the sandboxed kernel.
-
-### Semantic Guardrails
-Layered defense using a "Guard" LLM to intercept and block adversarial intent in real-time.
-- `BLOCK` mode is now the default for high-security scenarios.
-
+### 5. Service URLs
+- App: `http://localhost:3000`
+- Backend API: `http://localhost:8000`
+- Ollama: `http://localhost:11434`
+- Promptfoo UI: `http://localhost:15500`
+- API docs: `http://localhost:8000/docs`
