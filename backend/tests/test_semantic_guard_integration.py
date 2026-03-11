@@ -53,6 +53,48 @@ async def test_process_interaction_resets_stale_verdicts_and_records_compliance(
 
 
 @pytest.mark.asyncio
+async def test_process_interaction_compliance_block_uses_clean_refusal():
+    proxy = SecurityProxy()
+    proxy.set_context({"guardrail_mode": GuardrailMode.BLOCK})
+
+    async def fake_input_policy(user_text, history):
+        return user_text, False, "OK"
+
+    async def fake_llm(_history):
+        return "safe draft", None
+
+    async def fake_output_policy(draft_text, history):
+        return True, draft_text, "OK"
+
+    async def fake_verify_compliance(_audit_packet):
+        return SemanticVerdict.model_validate(
+            {
+                "pass": False,
+                "score": 1.0,
+                "risk_level": "CRITICAL",
+                "categories": ["Political Content Request"],
+                "confidence": 1.0,
+                "rationale": "Potential policy violation.",
+                "recommended_action": "refuse",
+            }
+        )
+
+    proxy.enforce_input_policy_async = fake_input_policy
+    proxy.enforce_output_policy = fake_output_policy
+    proxy.verify_compliance = fake_verify_compliance
+
+    response, tool_call, reason = await proxy.process_interaction(
+        "hello",
+        [{"role": "user", "content": "hello"}],
+        fake_llm,
+    )
+
+    assert response == "I cannot fulfill this request due to security protocols."
+    assert tool_call is None
+    assert reason == "Audit Block: Political persuasion request detected."
+
+
+@pytest.mark.asyncio
 async def test_agent_loop_surfaces_all_semantic_guard_verdicts(monkeypatch):
     async def fake_process_interaction(user_input, history, llm_caller_func):
         policy_engine.context["last_input_verdict"] = {"risk_level": "WARN", "rationale": "Input flagged"}

@@ -11,6 +11,7 @@ const TOOLTIPS = {
   HARDENING: "System Prompt Injection: Applies a strict 'Security-First' set of constraints to the target agent. Tests if the model can be protected via persona enforcement.",
   INQ_HARDENING: "Session-only firewall for Inquisitor mode. This forces the proxy and policy engine into a hardened path for the Inquisitor run without changing Promptfoo or other modes.",
   CATEGORY: "The specific threat vector being simulated. Each category contains a library of unique adversarial payloads.",
+  CUSTOM_PROMPT: "Optional custom attacker prompt for REAL_AGENT and INQUISITOR tests. This lets you test your own payload text against the full defense stack.",
   AUDIT: "Deep Scanning: Automated execution of multiple threat vectors to provide a comprehensive Risk Score for the target configuration.",
   HARDENING_SCAN: "Strategy Probing: Specifically tests the target against common psychological bypass techniques like Piggybacking or Hypothetical Framing.",
   INTELLIGENCE: "Predictive Analytics: Our AI analyzes your current configuration to forecast the attack vector, sandbox isolation status, and active defense layers."
@@ -119,6 +120,13 @@ const getEnforcementAttribution = (mode: string, evidence: any) => {
   return null;
 };
 
+const formatContextTurnsLabel = (value: number) => {
+  if (!Number.isFinite(value) || value <= 0) {
+    return 'Full transcript';
+  }
+  return `${value} turn${value === 1 ? '' : 's'}`;
+};
+
 export default function Dashboard() {
   const [stats, setStats] = useState({
     total_attacks: 0,
@@ -148,11 +156,14 @@ export default function Dashboard() {
   const [agentHardened, setAgentHardened] = useState(false);
   const [inquisitorHardened, setInquisitorHardened] = useState(false);
   const [intelligenceFeed, setIntelligenceFeed] = useState<any>(null);
+  const [useCustomPrompt, setUseCustomPrompt] = useState(false);
+  const [customPrompt, setCustomPrompt] = useState('');
+  const [executionError, setExecutionError] = useState('');
 
   // Semantic Guardrail State
   const [guardrailMode, setGuardrailMode] = useState('warn');
   const [guardrailModel, setGuardrailModel] = useState('llama3.1:8b');
-  const [contextTurns, setContextTurns] = useState(10);
+  const [contextTurns, setContextTurns] = useState(0);
 
   const fetchStats = async () => {
     try {
@@ -222,17 +233,33 @@ export default function Dashboard() {
     setCampaignName(newName);
 
     // Predictive Intelligence Logic
+    const testName = mode === 'INQUISITOR'
+      ? 'Inquisitor Multi-Turn Adversarial Session'
+      : mode === 'REAL_AGENT'
+        ? 'Single-Agent Runtime Test'
+        : 'Deterministic Simulation';
+    const payloadSource = useCustomPrompt && customPrompt.trim() ? 'Custom Prompt' : 'Payload Library';
+    const settings = [
+      `Guard=${guardrailMode.toUpperCase()}`,
+      `Context=${formatContextTurnsLabel(contextTurns)}`,
+      `Payload=${payloadSource}`,
+      `Category=${formattedCat}`,
+    ].join(' | ');
     const feed = {
+      test: testName,
       vector: mode === 'INQUISITOR' ? 'Adversarial Escalation Loop' : mode === 'REAL_AGENT' ? 'Single-Shot Model Probe' : 'Direct Sandbox Simulation',
       isolation: '100% Isolated Docker Environment',
-      defense: activeHardening ? 'Policy Engine + System Hardening' : 'Policy Engine Standard'
+      defense: activeHardening ? 'Policy Engine + System Hardening' : 'Policy Engine Standard',
+      settings,
     };
     setIntelligenceFeed(feed);
-  }, [mode, category, agentHardened, inquisitorHardened]);
+  }, [mode, category, agentHardened, inquisitorHardened, guardrailMode, contextTurns, useCustomPrompt, customPrompt]);
 
   const runCampaign = async () => {
     setLoading(true);
+    setExecutionError('');
     try {
+      const customPayloadText = customPrompt.trim();
       const res = await fetch('http://localhost:8000/campaigns/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -243,7 +270,8 @@ export default function Dashboard() {
           mode: mode,
           guardrail_mode: guardrailMode,
           guardrail_model: guardrailModel,
-          guardrail_context_turns: contextTurns
+          guardrail_context_turns: contextTurns,
+          custom_payload: useCustomPrompt && customPayloadText ? customPayloadText : undefined,
         })
       });
       const data = await res.json();
@@ -251,6 +279,7 @@ export default function Dashboard() {
       fetchStats();
     } catch (err) {
       console.error("Failed to run campaign", err);
+      setExecutionError('Failed to execute the campaign request.');
     } finally {
       setLoading(false);
     }
@@ -258,9 +287,11 @@ export default function Dashboard() {
 
   const runInquisitor = async () => {
     setLoading(true);
+    setExecutionError('');
     setInquisitorResult(null);
     setLastResult(null);
     try {
+      const customPayloadText = customPrompt.trim();
       const res = await fetch('http://localhost:8000/campaigns/inquisitor', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -272,7 +303,8 @@ export default function Dashboard() {
           session_hardened: inquisitorHardened,
           guardrail_mode: guardrailMode,
           guardrail_model: guardrailModel,
-          guardrail_context_turns: contextTurns
+          guardrail_context_turns: contextTurns,
+          custom_payload: useCustomPrompt && customPayloadText ? customPayloadText : undefined,
         })
       });
       const data = await res.json();
@@ -280,12 +312,22 @@ export default function Dashboard() {
       fetchStats();
     } catch (err) {
       console.error("Failed to run inquisitor", err);
+      setExecutionError('Failed to execute the inquisitor campaign.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleExecute = () => {
+    if (useCustomPrompt && !customPrompt.trim()) {
+      setExecutionError('Custom prompt is enabled, but the prompt text is empty.');
+      return;
+    }
+    if (mode === 'SIMULATED' && useCustomPrompt) {
+      setExecutionError('Custom prompt is available for REAL_AGENT and INQUISITOR modes only.');
+      return;
+    }
+    setExecutionError('');
     if (mode === 'INQUISITOR') {
       runInquisitor();
     } else {
@@ -376,6 +418,7 @@ export default function Dashboard() {
       setScanResult(null);
       setHardenResult(null);
       setAuditAnalysis(null);
+      setExecutionError('');
       await Promise.all([fetchStats(), fetchStrategyStats()]);
     } catch (err) {
       console.error("Failed to clear audit stream", err);
@@ -541,6 +584,36 @@ export default function Dashboard() {
                 </select>
               </div>
 
+              <div className="bg-slate-950/50 border-2 border-white/5 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1">
+                    Custom Prompt
+                    <InfoTooltip text={TOOLTIPS.CUSTOM_PROMPT} align="left" />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setUseCustomPrompt((current) => !current)}
+                    className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all ${
+                      useCustomPrompt
+                        ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300'
+                        : 'bg-slate-950/60 border-white/10 text-slate-400'
+                    }`}
+                  >
+                    {useCustomPrompt ? 'Enabled' : 'Disabled'}
+                  </button>
+                </div>
+                <textarea
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  disabled={!useCustomPrompt}
+                  placeholder="Enter your own attack prompt for REAL_AGENT or INQUISITOR mode."
+                  className="w-full min-h-[110px] bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500/60 disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+                <p className="text-[10px] text-slate-500">
+                  Custom prompt input is applied only in REAL_AGENT and INQUISITOR modes.
+                </p>
+              </div>
+
               {/* Predictive Intelligence Feed */}
               {intelligenceFeed && (
                 <div className="bg-slate-950 border-2 border-cyan-500/20 rounded-2xl p-6 relative animate-in fade-in zoom-in duration-500 shadow-xl">
@@ -555,6 +628,16 @@ export default function Dashboard() {
                   </div>
 
                   <div className="grid grid-cols-1 gap-4">
+                    <div className="flex items-center gap-4 group/item">
+                      <div className="h-10 w-1 p-0.5 bg-indigo-500/20 group-hover/item:bg-indigo-500 transition-all rounded-full" />
+                      <div className="flex-1">
+                        <p className="text-[10px] font-black text-slate-600 uppercase tracking-tighter mb-0.5">Current Test</p>
+                        <p className="text-xs font-bold text-white flex items-center gap-2">
+                          <Activity className="w-3 h-3 text-indigo-400" /> {intelligenceFeed.test}
+                        </p>
+                      </div>
+                    </div>
+
                     <div className="flex items-center gap-4 group/item">
                       <div className="h-10 w-1 p-0.5 bg-cyan-500/20 group-hover/item:bg-cyan-500 transition-all rounded-full" />
                       <div className="flex-1">
@@ -580,7 +663,19 @@ export default function Dashboard() {
                       <div className="flex-1">
                         <p className="text-[10px] font-black text-slate-600 uppercase tracking-tighter mb-0.5">Defense Overlay</p>
                         <p className="text-xs font-bold text-white flex items-center gap-2">
-                          {agentHardened ? <Lock className="w-3 h-3 text-purple-500" /> : <Unlock className="w-3 h-3 text-purple-500" />} {intelligenceFeed.defense}
+                          {(mode === 'INQUISITOR' ? inquisitorHardened : agentHardened)
+                            ? <Lock className="w-3 h-3 text-purple-500" />
+                            : <Unlock className="w-3 h-3 text-purple-500" />} {intelligenceFeed.defense}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-4 group/item">
+                      <div className="h-10 w-1 p-0.5 bg-amber-500/20 group-hover/item:bg-amber-500 transition-all rounded-full" />
+                      <div className="flex-1">
+                        <p className="text-[10px] font-black text-slate-600 uppercase tracking-tighter mb-0.5">Active Settings</p>
+                        <p className="text-[11px] font-bold text-amber-200 leading-relaxed">
+                          {intelligenceFeed.settings}
                         </p>
                       </div>
                     </div>
@@ -615,6 +710,12 @@ export default function Dashboard() {
                   <span>Ready</span>
                 </div>
               </div>
+
+              {executionError && (
+                <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300 text-[11px] font-bold">
+                  {executionError}
+                </div>
+              )}
             </div>
 
             <button
@@ -678,9 +779,16 @@ export default function Dashboard() {
                   <input
                     type="number"
                     value={contextTurns}
-                    onChange={(e) => setContextTurns(parseInt(e.target.value))}
+                    min={0}
+                    onChange={(e) => {
+                      const parsed = Number.parseInt(e.target.value, 10);
+                      setContextTurns(Number.isFinite(parsed) && parsed >= 0 ? parsed : 0);
+                    }}
                     className="w-full bg-slate-950 border-2 border-white/10 rounded-2xl px-4 py-3 focus:outline-none focus:border-cyan-500 transition-all font-black text-[10px] tracking-wider text-slate-300"
                   />
+                  <p className="mt-2 text-[9px] text-slate-500 font-bold uppercase tracking-widest">
+                    0 keeps the full transcript. Positive values trim to the latest turns.
+                  </p>
                 </div>
               </div>
 
@@ -910,7 +1018,7 @@ export default function Dashboard() {
                 <div
                   key={i}
                   onClick={() => {
-                    if (entry.type === 'promptfoo_eval') {
+                    if (entry.type === 'promptfoo_eval' || entry.type === 'garak_eval' || entry.type === 'pyrit_eval') {
                       return;
                     }
                     if (entry.type === 'inquisitor') {
@@ -931,13 +1039,23 @@ export default function Dashboard() {
                     <span className="text-slate-600 tabular-nums font-bold">
                       {new Date(entry.timestamp * 1000).toLocaleTimeString()}
                     </span>
-                    {entry.type === 'promptfoo_eval' ? (
+                    {entry.type === 'promptfoo_eval' || entry.type === 'garak_eval' || entry.type === 'pyrit_eval' ? (
                       <span className="px-2 py-0.5 rounded text-[9px] font-black tracking-widest shadow-sm bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
-                        {entry.eval_status === 'running' ? 'PROMPTFOO RUNNING' : String(entry.eval_status || 'PROMPTFOO').toUpperCase()}
+                        {entry.eval_status === 'running'
+                          ? `${String(entry.evaluator || 'eval').toUpperCase()} RUNNING`
+                          : `${String(entry.evaluator || 'eval').toUpperCase()} ${String(entry.eval_status || '').toUpperCase()}`.trim()}
                       </span>
                     ) : entry.type === 'promptfoo_live' ? (
                       <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-widest shadow-sm ${entry.success ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'}`}>
-                        {entry.success ? 'PROMPTFOO LIVE FAIL' : 'PROMPTFOO LIVE PASS'}
+                        {entry.success ? 'PROMPTFOO PROVISIONAL FAIL' : 'PROMPTFOO PROVISIONAL PASS'}
+                      </span>
+                    ) : entry.type === 'garak_live' ? (
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-widest shadow-sm ${entry.success ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'}`}>
+                        {entry.success ? 'GARAK PROVISIONAL FLAG' : 'GARAK PROVISIONAL PASS'}
+                      </span>
+                    ) : entry.type === 'pyrit_live' ? (
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-widest shadow-sm ${entry.success ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'}`}>
+                        {entry.success ? 'PYRIT PROVISIONAL FLAG' : 'PYRIT PROVISIONAL PASS'}
                       </span>
                     ) : (
                       <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-widest shadow-sm ${entry.success ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
@@ -948,7 +1066,7 @@ export default function Dashboard() {
                     {entry.type === 'inquisitor' && (
                       <span className="px-2 py-0.5 rounded text-[9px] font-black bg-amber-500/10 text-amber-300 border border-amber-500/20 tracking-widest">⚡ INQUISITOR</span>
                     )}
-                    {entry.type === 'promptfoo_eval' && (
+                    {(entry.type === 'promptfoo_eval' || entry.type === 'garak_eval' || entry.type === 'pyrit_eval') && (
                       <span className="px-2 py-0.5 rounded text-[9px] font-black bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 tracking-widest">
                         {Math.round((entry.progress || 0) * 100)}%
                       </span>
@@ -965,14 +1083,33 @@ export default function Dashboard() {
                       </span>
                     )}
                     <span className="text-slate-500 text-[10px] font-bold uppercase tracking-tighter">
-                      {entry.type === 'promptfoo_eval'
+                      {entry.type === 'promptfoo_eval' || entry.type === 'garak_eval' || entry.type === 'pyrit_eval'
                         ? `${entry.phase || 'running'}${entry.eta_seconds !== null && entry.eta_seconds !== undefined ? ` • ~${entry.eta_seconds}s` : ''}`
                         : entry.type === 'promptfoo_live'
                         ? (entry.phase || 'Awaiting official Promptfoo grade')
+                        : entry.type === 'garak_live'
+                        ? (entry.phase || 'Awaiting official Garak summary')
+                        : entry.type === 'pyrit_live'
+                        ? (entry.phase || 'Awaiting official PyRIT summary')
                         : entry.category?.replace(/_/g, ' ')}
                     </span>
                   </div>
                   <p className="text-slate-400 truncate italic font-medium">"{entry.output_snippet}"</p>
+                  {entry.test_name && (
+                    <p className="mt-1 text-[10px] text-indigo-300 font-bold uppercase tracking-[0.16em] truncate">
+                      Test: {entry.test_name}
+                    </p>
+                  )}
+                  {entry.settings_summary && (
+                    <p className="mt-1 text-[10px] text-slate-500 truncate">
+                      Settings: {entry.settings_summary}
+                    </p>
+                  )}
+                  {Array.isArray(entry.warnings) && entry.warnings.length > 0 && (
+                    <p className="mt-1 text-[10px] text-amber-300 truncate">
+                      Warning: {entry.warnings[0]}
+                    </p>
+                  )}
                   {entry.semantic_guard_summary?.headline && (
                     <p className="mt-1 text-[10px] text-cyan-300 font-bold uppercase tracking-[0.16em] truncate">
                       Semantic Guard: {entry.semantic_guard_summary.headline}

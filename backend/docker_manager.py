@@ -1,12 +1,13 @@
-import docker
+import docker
+import docker.errors
 import os
 import uuid
 import tarfile
 import io
-from typing import Optional, Dict
+from typing import Optional, Dict
 from models import WorkspaceMode
 
-class DockerOrchestrator:
+class DockerOrchestrator:
     def __init__(self):
         self._client = None
 
@@ -188,15 +189,42 @@ class DockerOrchestrator:
             print(f"Error purging resources: {e}")
             return False
 
-    def cleanup_container(self, container_id: str):
-        try:
-            container = self.client.containers.get(container_id)
-            container.stop()
-            container.remove()
-            print(f" [DOCKER] Cleaned up container: {container_id[:8]}")
-            return True
-        except Exception as e:
-            print(f"Error cleaning up: {e}")
-            return False
+    def cleanup_container(self, container_id: str):
+        try:
+            container = self.client.containers.get(container_id)
+            try:
+                container.stop(timeout=2)
+            except Exception:
+                pass
+            container.remove(force=True)
+            print(f" [DOCKER] Cleaned up container: {container_id[:8]}")
+            return True
+        except Exception as e:
+            print(f"Error cleaning up: {e}")
+            return False
+
+    def ensure_image(self, image_name: str, build_context: str, dockerfile: str = "Dockerfile"):
+        """Build an image if it does not already exist locally."""
+        try:
+            return self.client.images.get(image_name)
+        except docker.errors.ImageNotFound:
+            pass
+        except Exception as e:
+            print(f"Error checking image {image_name}: {e}")
+            return None
+
+        try:
+            image, _ = self.client.images.build(
+                path=build_context,
+                dockerfile=dockerfile,
+                tag=image_name,
+                rm=True,
+                labels={"aegis-forge": "true", "type": "tool-image"},
+            )
+            print(f" [DOCKER] Built image: {image_name}")
+            return image
+        except Exception as e:
+            print(f"Error building image {image_name}: {e}")
+            return None
 
 orchestrator = DockerOrchestrator()

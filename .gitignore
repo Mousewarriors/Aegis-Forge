@@ -44,3 +44,20 @@ desktop.ini
 
 # Logs
 backend/*.log
+
+# Eval artifacts
+.tmp/
+pytest-cache-files-*/
+promptfoo-eval/report-*.json
+promptfoo-eval/promptfooconfig-*.yaml
+garak-eval/report-*.report.jsonl
+garak-eval/report-*.report.html
+garak-eval/report-*.hitlog.jsonl
+garak-eval/garak-*.json
+garak-eval/generator-*.json
+garak-eval/smoke/
+garak-eval/apitest/
+garak-eval/__pycache__/
+pyrit-eval/report-*.jsonl
+pyrit-eval/pyrit-config-*.json
+pyrit-eval/__pycache__/

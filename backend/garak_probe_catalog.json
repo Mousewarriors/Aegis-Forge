@@ -1,0 +1,236 @@
+{
+  "encoding": [
+    {
+      "id": "encoding.InjectAscii85",
+      "label": "Inject Ascii85",
+      "description": "Probe for susceptibility to base85 encoded injections",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "encoding.InjectAtbash",
+      "label": "Inject Atbash",
+      "description": "Atbash Probe Credit: Nakul-Rajpal",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "encoding.InjectBase16",
+      "label": "Inject Base16",
+      "description": "Probe for susceptibility to base16 encoded injections",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "encoding.InjectBase2048",
+      "label": "Inject Base2048",
+      "description": "Probe for susceptibility to Base2048 encoding injections",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "encoding.InjectBase32",
+      "label": "Inject Base32",
+      "description": "Probe for susceptibility to base32 encoded injections",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "encoding.InjectBase64",
+      "label": "Inject Base64",
+      "description": "Probe for susceptibility to base64 encoded injections",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "encoding.InjectBraille",
+      "label": "Inject Braille",
+      "description": "Probe for susceptibility to Braille encoding injections. Credit Wally#3422",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "encoding.InjectEcoji",
+      "label": "Inject Ecoji",
+      "description": "Probe for susceptibility to Ecoji encoding.",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "encoding.InjectHex",
+      "label": "Inject Hex",
+      "description": "Probe for susceptibility to hex encoded injections",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "encoding.InjectMorse",
+      "label": "Inject Morse",
+      "description": "Probe for susceptibility to Morse encoding. Credit Wally#3422",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "encoding.InjectNato",
+      "label": "Inject Nato",
+      "description": "Probe for susceptibility to Nato phonetic alphabet encoding.",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "encoding.InjectROT13",
+      "label": "Inject ROT13",
+      "description": "Probe for susceptibility to ROT13 encoding injections",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "encoding.InjectUU",
+      "label": "Inject UU",
+      "description": "Probe for susceptibility to UU encoded injections",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "encoding.InjectUnicodeTagChars",
+      "label": "Inject Unicode Tag Chars",
+      "description": "Probe for susceptibility to unicode tag ASCII smuggling",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "encoding.InjectZalgo",
+      "label": "Inject Zalgo",
+      "description": "Probe for susceptibility to Zalgo encoding.",
+      "estimated_prompts": 64
+    }
+  ],
+  "goodside": [
+    {
+      "id": "goodside.Tag",
+      "label": "Tag",
+      "description": "Exploit UTF tag page encoding for user-invisible prompt injection",
+      "estimated_prompts": 32
+    },
+    {
+      "id": "goodside.ThreatenJSON",
+      "label": "Threaten JSON",
+      "description": "Will model strip preamble and give JSON?",
+      "estimated_prompts": 1
+    },
+    {
+      "id": "goodside.WhoIsRiley",
+      "label": "Who Is Riley",
+      "description": "Probe for misinfo about Riley Goodside",
+      "estimated_prompts": 6
+    }
+  ],
+  "latentinjection": [
+    {
+      "id": "latentinjection.LatentInjectionFactSnippetEiffel",
+      "label": "Latent Injection Fact Snippet Eiffel",
+      "description": "String-based latent prompt injections in fact snippets on the Eiffel Tower",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "latentinjection.LatentInjectionFactSnippetLegal",
+      "label": "Latent Injection Fact Snippet Legal",
+      "description": "String-based latent prompt injections in legal snippets",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "latentinjection.LatentInjectionReport",
+      "label": "Latent Injection Report",
+      "description": "String-based latent prompt injections via a report",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "latentinjection.LatentInjectionResume",
+      "label": "Latent Injection Resume",
+      "description": "String-based latent prompt injections via a resume",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "latentinjection.LatentInjectionTranslationEnFr",
+      "label": "Latent Injection Translation En Fr",
+      "description": "String-based latent prompt injections via translation",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "latentinjection.LatentInjectionTranslationEnZh",
+      "label": "Latent Injection Translation En Zh",
+      "description": "Latent prompt injection in Chinese context (\\u7b80\\u4f53\\u5b57)",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "latentinjection.LatentJailbreak",
+      "label": "Latent Jailbreak",
+      "description": "Implementation of Latent Jailbreak, using latent prompt injection",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "latentinjection.LatentWhois",
+      "label": "Latent Whois",
+      "description": "Latent prompt injections in whois probe reports",
+      "estimated_prompts": 168
+    },
+    {
+      "id": "latentinjection.LatentWhoisSnippet",
+      "label": "Latent Whois Snippet",
+      "description": "String-based latent prompt injections in whois reports",
+      "estimated_prompts": 64
+    }
+  ],
+  "lmrc": [
+    {
+      "id": "lmrc.Bullying",
+      "label": "Bullying",
+      "description": "Generation of repeated threats, denigration",
+      "estimated_prompts": 7
+    },
+    {
+      "id": "lmrc.Deadnaming",
+      "label": "Deadnaming",
+      "description": "Mentioning a name that a person does not wish to be associated with",
+      "estimated_prompts": 6
+    },
+    {
+      "id": "lmrc.QuackMedicine",
+      "label": "Quack Medicine",
+      "description": "Promoting non-scientific medicine.",
+      "estimated_prompts": 1
+    },
+    {
+      "id": "lmrc.SexualContent",
+      "label": "Sexual Content",
+      "description": "Content that discusses bodies and interactions in a sexual manner, or other sexually explicit material",
+      "estimated_prompts": 1
+    },
+    {
+      "id": "lmrc.Sexualisation",
+      "label": "Sexualisation",
+      "description": "Causal or overt sexual objectification, reducing a person or group of people to sexual objects.",
+      "estimated_prompts": 3
+    },
+    {
+      "id": "lmrc.SlurUsage",
+      "label": "Slur Usage",
+      "description": "Using an identity-based slur in a non-reclaimed way - either directly or recommending the consumer to use in speech/action.",
+      "estimated_prompts": 1
+    }
+  ],
+  "promptinject": [
+    {
+      "id": "promptinject.HijackHateHumans",
+      "label": "Hijack Hate Humans",
+      "description": "PromptInject probe to inject a string; payload is hate-humans",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "promptinject.HijackKillHumans",
+      "label": "Hijack Kill Humans",
+      "description": "PromptInject probe to inject a string; payload is kill-humans",
+      "estimated_prompts": 64
+    },
+    {
+      "id": "promptinject.HijackLongPrompt",
+      "label": "Hijack Long Prompt",
+      "description": "PromptInject probe to inject a string; payload is long-prompt",
+      "estimated_prompts": 64
+    }
+  ],
+  "realtoxicityprompts": [
+    {
+      "id": "realtoxicityprompts.RTPBlank",
+      "label": "RTP Blank",
+      "description": "Implementation of probes in RealToxicityPrompts",
+      "estimated_prompts": 5
+    }
+  ]
+}

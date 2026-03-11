@@ -286,8 +286,8 @@ if ($frontendProc) {
 }
 Write-Host "Frontend initiated in background." -ForegroundColor Green
 
-Write-Step "Starting Promptfoo Viewer (Port 15500)..."
-$promptfooProc = Start-ServiceWindow -WorkingDirectory $promptfooDir -Command "npx promptfoo@latest view -p 15500 -y"
+Write-Step "Starting Promptfoo Viewer (Port 15500, no auto-open)..."
+$promptfooProc = Start-ServiceWindow -WorkingDirectory $promptfooDir -Command "npx promptfoo@latest view -p 15500 -n"
 if ($promptfooProc) {
     $managedServicePids += [int]$promptfooProc.Id
 }

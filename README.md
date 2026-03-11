@@ -1,85 +1,251 @@
-# 🛡️ Aegis Forge: The Ultimate AI Security Research Sandbox
+# Aegis Forge
 
-Aegis Forge is a hyper-secure, locally-hosted environment designed exclusively for **testing, breaking, and hardening AI agents**. By executing adversarial payloads inside isolated Docker containers, security researchers can safely evaluate Large Language Model (LLM) behavior against Prompt Injection, RBAC bypasses, and Data Exfiltration techniques without risking host system integrity.
+Aegis Forge is a local AI red-teaming and hardening workbench for testing agentic systems behind a defended execution boundary.
 
----
+It combines:
 
-## ⚡ Key Features
+- a FastAPI backend that runs campaigns, enforces guardrails, and orchestrates sandboxes
+- a Next.js frontend for live audit, eval control, and reporting
+- multiple evaluator paths:
+  - Promptfoo for regression-style red teaming and policy checks
+  - Garak for broad probe-based vulnerability scanning
+  - PyRIT for orchestrated attack mutation and refusal testing
 
-### 🎯 Automated Red Team Evaluation
-Aegis Forge integrates **Promptfoo** headlessly as its core benchmarking engine. 
-- **Dynamic Scans**: Trigger hundreds of adversarial permutations across categories like Shell Injection, Jailbreaking (Pliny), and Hijacking.
-- **Premium Dashboard**: Visualize results in a real-time **Vulnerability Matrix** with shimmering progress bars and active evaluation HUDs.
-- **Selective Attack Vectors**: Generate custom `promptfooconfig.yaml` profiles on-the-fly directly from the UI.
+The project is built for iterative security work: launch a scan, see exactly what ran, review blocked or vulnerable responses, tighten defenses, and run again.
 
-### 🛡️ Active Agent Hardening
-Implement a **Defense-in-Depth** strategy using our contextual **Semantic Guard**.
-- **Real-time Interception**: A "Guard" LLM analyzes incoming tool calls (e.g., `run_command`) and blocks them if they exhibit malicious intent.
-- **Hot-swappable Policies**: Toggle hardening modes instantly and watch the agent's refusal rate spike as defenses come online.
+## What It Does
 
-### 📡 SysWatch: Kernel-Level Telemetry
-Traditional logging is easily bypassed. Aegis Forge monitors the **Raw Syscall Stream** using eBPF (`bpftrace`).
-- **Deep Visibility**: Track `execve`, `openat2`, and network socket calls directly at the kernel tracepoint.
-- **Windows/WSL2 Support**: Automatically fall back to containerized probes inside Docker to maintain visibility on Windows hosts.
+Aegis Forge gives you one place to:
 
-### 📦 Isolated Execution Environment
-- Every campaign run spawns an **ephemeral, non-root Docker container**.
-- **Ephemeral Volumes**: Sandbox file-system modifications using isolated named volumes that are purged upon completion.
-- **No Network Access**: Containers are strictly isolated from the external internet by default.
+- run adversarial campaigns against a defended local agent
+- compare Promptfoo, Garak, and PyRIT in the same dashboard
+- inspect live attack attempts, transcripts, and evaluator events
+- retain reports and logs after completion or stop
+- harden the target agent and immediately re-test it
+- observe execution behavior through audit history and kernel-oriented telemetry
 
----
+## Current Evaluator Model
 
-## 🛠️ Tech Stack
-- **Backend**: FastAPI (Python 3.10+)
-- **Frontend**: Next.js 16 (React 19 + Framer Motion)
-- **Engine**: Ollama (Llama 3.1 8B recommended)
-- **Benchmarks**: Promptfoo CLI
-- **Monitoring**: eBPF (bpftrace) + Docker API
+### Promptfoo
 
----
+Best for:
 
-## 🚀 Getting Started
+- policy and regression checks
+- curated red-team vectors
+- structured pass or fail reporting
 
-### 1. Prerequisites
-- **Docker Desktop** (with WSL2 backend if on Windows).
-- **Ollama** installed and running locally.
-- **Node.js 20+** installed.
+### Garak
 
-### 2. Automated Setup (Recommended)
-We've unified the environment initialization into a single script. Simply run:
+Best for:
+
+- breadth scanning across concrete probe classes
+- probe-family expansion and quick smoke runs
+- fast feedback on blocked versus vulnerable responses
+
+### PyRIT
+
+Best for:
+
+- mutated or transformed attack execution
+- scenario-based refusal testing
+- richer orchestration as the integration expands
+
+The current PyRIT integration already supports transformed preview samples, retained logs, and official report generation. The broader roadmap for full PyRIT exposure is documented in [docs/pyrit_full_integration_spec.md](docs/pyrit_full_integration_spec.md).
+
+## Architecture
+
+### Backend
+
+Path: `backend/`
+
+Responsibilities:
+
+- campaign execution
+- evaluator orchestration
+- Docker sandbox management
+- semantic and policy enforcement
+- audit feed aggregation
+- report and log retention
+
+Core stack:
+
+- Python
+- FastAPI
+- Docker SDK
+- local Ollama integration
+
+### Frontend
+
+Path: `frontend/`
+
+Responsibilities:
+
+- evaluator control surfaces
+- live audit stream
+- vulnerability matrix
+- flagged findings view
+- evaluator-specific preview and reporting UX
+
+Core stack:
+
+- Next.js 16
+- React 19
+- Framer Motion
+
+### Evaluator Runtimes
+
+- `promptfoo-eval/`
+- `garak-eval/`
+- `pyrit-eval/`
+
+These directories hold evaluator-specific assets, generated configs, and runtime wrappers.
+
+## Key Capabilities
+
+- Local defended target execution through the Aegis backend
+- Promptfoo, Garak, and PyRIT launch paths under a unified `/eval` model
+- Full retained logs for completed and stopped eval runs
+- Live attack preview and provisional reporting during execution
+- Vulnerability matrix plus consolidated flagged findings
+- PyRIT transformed prompt preview and richer event stream
+- Garak concrete probe selection and prompt caps for quick scans
+- Agent hardening toggle for fix-and-retest workflows
+- Docker-isolated execution for agent actions
+
+## Prerequisites
+
+- Docker Desktop
+- Ollama with `llama3.1:8b` available locally
+- Node.js 20+
+- Windows PowerShell for the current startup workflow
+
+Notes:
+
+- The repo is currently optimized around local Windows development with Docker Desktop and Ollama.
+- Some monitoring features depend on environment support and may degrade gracefully.
+
+## Quick Start
+
+From the repo root:
+
 ```powershell
-./startup.ps1
+.\startup.ps1
 ```
-This script will:
-1. Verify Docker and Ollama availability.
-2. Pull required models (`llama3.1:8b`).
-3. Spawn the Backend, Frontend, and Promptfoo viewer in the background.
 
-### 3. Access the Dashboard
-- **Main UI**: [http://localhost:3000](http://localhost:3000)
-- **Red Team Matrix**: [http://localhost:3000/eval](http://localhost:3000/eval)
-- **API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **Promptfoo Viewer**: [http://localhost:15500](http://localhost:15500)
+The startup script will:
 
----
+1. verify Docker
+2. verify Ollama and pull `llama3.1:8b` if needed
+3. stop old Aegis service instances
+4. start backend, frontend, and Promptfoo viewer
+5. wait for the services to become ready
 
-## 📂 Project Structure
-- `backend/`: FastAPI source, policy engines, and Docker orchestrators.
-- `frontend/`: Next.js dashboard and Red Team visualization.
-- `promptfoo-eval/`: Evaluator configurations and adversarial providers.
-- `workspace/`: The designated sandbox directory for agent file operations.
-- `contracts/`: (Coming Soon) Formal definitions for agent tool permissions.
+### Service URLs
 
----
+- App: `http://localhost:3000`
+- Eval dashboard: `http://localhost:3000/eval`
+- Garak shortcut: `http://localhost:3000/garak`
+- PyRIT shortcut: `http://localhost:3000/pyrit`
+- Backend API: `http://localhost:8000`
+- FastAPI docs: `http://localhost:8000/docs`
+- Promptfoo viewer: `http://localhost:15500`
+- Ollama: `http://localhost:11434`
 
-## ⚖️ Ethical Use & Scope
-**Aegis Forge is unintended for malicious use.** It is a defensive tool meant to expose vulnerabilities in AI agent orchestration frameworks. 
-- Only test systems you have explicit authorization to audit.
-- Keep experimental payloads within the sandboxed `workspace/`.
+## Manual Startup
 
----
+### Backend
 
-## 👥 Contributors
-- **Mousewarriors Team**
+```powershell
+cd backend
+.\venv\Scripts\python.exe main.py
+```
 
-*This project is built for the future of secure AI agent orchestration.*
+### Frontend
+
+```powershell
+cd frontend
+npm run dev
+```
+
+### Promptfoo Viewer
+
+Use the startup script unless you specifically need to run components manually.
+
+## Evaluator Workflows
+
+### Promptfoo Workflow
+
+- choose vectors in the eval dashboard
+- preflight the run
+- launch against the defended local target
+- review matrix, flagged findings, and final report
+
+### Garak Workflow
+
+- choose concrete probes or family-expanded probe sets
+- cap prompts per probe for quick scans
+- watch probe-level progress in the eval dashboard
+- review provisional and official Garak reports
+
+### PyRIT Workflow
+
+- choose curated scenarios in the eval dashboard
+- review raw objective plus transformed preview samples before launch
+- watch live plan, objective, transformation, score, and completion events
+- inspect retained transcripts and official reports after completion
+
+## Development
+
+### Frontend build
+
+```powershell
+cd frontend
+npm run build
+```
+
+### Backend compile check
+
+```powershell
+backend\venv\Scripts\python.exe -m compileall backend pyrit-eval
+```
+
+### Focused backend tests
+
+```powershell
+backend\venv\Scripts\python.exe -m pytest backend\tests\test_promptfoo_eval_integration.py -q -p no:cacheprovider
+```
+
+## Repository Layout
+
+```text
+aegis-forge/
+|-- backend/            FastAPI app, models, policies, monitors, tests
+|-- frontend/           Next.js dashboard
+|-- promptfoo-eval/     Promptfoo assets and generated eval outputs
+|-- garak-eval/         Garak image assets and reports
+|-- pyrit-eval/         PyRIT image assets and runtime wrapper
+|-- docs/               Design and implementation specs
+|-- startup.ps1         One-command local startup
+|-- STARTUP.md          Startup reference
+```
+
+## Important Docs
+
+- Startup guide: [STARTUP.md](STARTUP.md)
+- PyRIT expansion spec: [docs/pyrit_full_integration_spec.md](docs/pyrit_full_integration_spec.md)
+- Guardrail graph map: [docs/guardrails_graph_map.md](docs/guardrails_graph_map.md)
+
+## Safety and Scope
+
+Aegis Forge is for defensive research, validation, and hardening.
+
+Use it only against systems and agents you are authorized to test.
+
+The project is intentionally built around:
+
+- local execution
+- sandboxed action paths
+- explicit evaluator launch control
+- visible retained evidence
+
+It is a security workbench, not a production deployment platform.

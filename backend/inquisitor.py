@@ -27,6 +27,7 @@ from typing import List, Dict, Any, Optional, Tuple
 
 
 from agent_loop import AgentLoop
+from history_utils import select_history_window
 
 from policy_engine import policy_engine
 
@@ -716,7 +717,7 @@ class Inquisitor:
 
                 ctx_turns = int(campaign.guardrail_context_turns)
 
-                hist_window = conversation[-ctx_turns:] if ctx_turns > 0 else []
+                hist_window = select_history_window(conversation, ctx_turns)
 
                 policy_engine.set_context({
 
@@ -770,7 +771,7 @@ class Inquisitor:
                 # Update policy context history
                 if campaign:
                     turns_to_take = int(campaign.guardrail_context_turns)
-                    hist_slice = conversation[-turns_to_take:] if turns_to_take > 0 else []
+                    hist_slice = select_history_window(conversation, turns_to_take)
                     policy_engine.context["history_window"] = hist_slice
 
                 target_evidence, tool_call = await target_loop.run_iteration_with_history(

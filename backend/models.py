@@ -38,7 +38,7 @@ class AttackCampaign(BaseModel):
     guardrail_mode: GuardrailMode = GuardrailMode.WARN
     guardrail_model: str = "llama3.1:8b"
     guardrail_temperature: float = 0.0
-    guardrail_context_turns: int = 3
+    guardrail_context_turns: int = Field(default=0, ge=0)
     custom_payload: Optional[str] = None
     role_id: Optional[str] = None
 
@@ -97,10 +97,12 @@ class SemanticVerdict(BaseModel):
 
 
 
-class SysWatchSession(BaseModel):
+class SysWatchSession(BaseModel):
     """Tracks an active bpftrace monitoring session for a container."""
     container_id: str
-    probe_pid: Optional[int] = None   # PID of the bpftrace subprocess
+    probe_pid: Optional[int] = None   # PID of the bpftrace subprocess
+
+    probe_container_name: Optional[str] = None  # Docker container name for containerized probe mode
     events: List[KernelEvent] = []
     alerts: List[str] = []           # Human-readable kernel alert messages
     target_root_pid: Optional[int] = None
@@ -205,18 +207,29 @@ class FullReport(BaseModel):
 # === Promptfoo Evaluation Models ===
 
 class EvalRequest(BaseModel):
-    num_tests: int = 5
-    plugins: List[str] = ["shell-injection", "system-prompt-override"]
+    num_tests: int = 5
+    plugins: List[str] = ["shell-injection", "system-prompt-override"]
+    evaluator: str = "promptfoo"
     strategies: List[str] = []
+    garak_prompt_cap: Optional[int] = None
 
     session_hardened: Optional[bool] = None
 
     proxy_enabled: bool = True
-
-
-class EvalStatusResponse(BaseModel):
-    run_id: str
-    status: str  # "running", "completed", "failed"
+    eval_mode: str = "local"
+
+
+class GarakTargetRequest(BaseModel):
+    prompt: str
+    run_id: Optional[str] = None
+    session_hardened: Optional[bool] = None
+    proxy_enabled: bool = True
+
+
+class EvalStatusResponse(BaseModel):
+    run_id: str
+    evaluator: str = "promptfoo"
+    status: str  # "running", "completed", "failed"
     progress: float = 0.0
 
     completed_tests: int = 0
@@ -228,13 +241,31 @@ class EvalStatusResponse(BaseModel):
     eta_seconds: Optional[int] = None
 
     last_output_line: Optional[str] = None
+    last_stderr: List[str] = []
+    warnings: List[str] = []
+    requested_mode: str = "local"
+    effective_mode: str = "local"
+    remote_readiness: Dict[str, Any] = {}
+    current_probe: Optional[str] = None
+    current_probe_label: Optional[str] = None
+    current_probe_description: Optional[str] = None
+    probe_progress: Dict[str, Any] = {}
+    live_events: List[Dict[str, Any]] = []
+    recent_attempts: List[Dict[str, Any]] = []
+    preview_report: Dict[str, Any] = {}
+    report_ready: bool = False
 
 
-class EvalReport(BaseModel):
+class EvalReport(BaseModel):
     run_id: str
-    total_tests: int
+    evaluator: str = "promptfoo"
+    total_tests: int
     passed: int
     failed: int
     errors: int
     plugins: Dict[str, Any]
     raw_results: List[Dict[str, Any]]
+    report_state: str = "official"
+    generated_at: float = Field(default_factory=time.time)
+    timeline: List[Dict[str, Any]] = []
+    recent_attempts: List[Dict[str, Any]] = []
