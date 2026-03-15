@@ -98,33 +98,42 @@ Core stack:
 - `garak-eval/`
 - `pyrit-eval/`
 
-These directories hold evaluator-specific assets, generated configs, and runtime wrappers.
+These directories hold evaluator-specific wrappers and local runtime assets. Generated evaluator reports and configs are ignored from git.
+
+## Support Tiers
+
+- Windows: full local stack support, including `startup.ps1`, Docker Desktop, Ollama, backend runtime, frontend runtime, and evaluator flows.
+- Linux/macOS: supported for backend dependency bootstrap, backend tests, frontend install/build/lint, and GitHub Actions style validation. Full interactive local stack startup is currently best-effort rather than first-class.
 
 ## Key Capabilities
 
-- Local defended target execution through the Aegis backend
+- local defended target execution through the Aegis backend
 - Promptfoo, Garak, and PyRIT launch paths under a unified `/eval` model
-- Full retained logs for completed and stopped eval runs
-- Live attack preview and provisional reporting during execution
-- Vulnerability matrix plus consolidated flagged findings
+- full retained logs for completed and stopped eval runs
+- live attack preview and provisional reporting during execution
+- vulnerability matrix plus consolidated flagged findings
 - PyRIT transformed prompt preview and richer event stream
 - Garak concrete probe selection and prompt caps for quick scans
-- Agent hardening toggle for fix-and-retest workflows
+- agent hardening toggle for fix-and-retest workflows
 - Docker-isolated execution for agent actions
 
 ## Prerequisites
 
-- Docker Desktop
-- Ollama with `llama3.1:8b` available locally
-- Node.js 20+
-- Windows PowerShell for the current startup workflow
+- Python 3.13 for the validated backend path
+- Node.js `22.13.1` and npm `10.9.2`
+- Docker Desktop or Docker Engine
+- Ollama with `llama3.1:8b` available locally for full runtime use
 
-Notes:
+Runtime policy:
 
-- The repo is currently optimized around local Windows development with Docker Desktop and Ollama.
-- Some monitoring features depend on environment support and may degrade gracefully.
+- `.nvmrc` pins the supported Node runtime for local shells and CI
+- `frontend/package.json` declares matching `engines` and `packageManager`
+- `backend/requirements.txt` is UTF-8 encoded runtime-only dependencies
+- `backend/requirements-dev.txt` layers test tooling on top of runtime dependencies
 
 ## Quick Start
+
+### Windows
 
 From the repo root:
 
@@ -132,15 +141,37 @@ From the repo root:
 .\startup.ps1
 ```
 
-The startup script will:
+If the backend virtual environment does not exist yet:
 
-1. verify Docker
-2. verify Ollama and pull `llama3.1:8b` if needed
-3. stop old Aegis service instances
-4. start backend, frontend, and Promptfoo viewer
-5. wait for the services to become ready
+```powershell
+py -3.13 -m venv backend\venv
+backend\venv\Scripts\python.exe -m pip install --upgrade pip
+backend\venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
+cd frontend
+cmd /c npm ci
+cd ..
+.\startup.ps1
+```
 
-### Service URLs
+### Linux/macOS
+
+The validated Linux/macOS path is for local validation and CI-style workflows:
+
+```bash
+python3.13 -m venv backend/venv
+backend/venv/bin/python -m pip install --upgrade pip
+backend/venv/bin/python -m pip install -r backend/requirements-dev.txt
+cd frontend
+npm ci
+cd ..
+make test-backend
+make build-frontend
+make lint-frontend
+```
+
+For full runtime use on Linux/macOS, start services manually instead of relying on `startup.ps1`.
+
+## Service URLs
 
 - App: `http://localhost:3000`
 - Eval dashboard: `http://localhost:3000/eval`
@@ -155,21 +186,30 @@ The startup script will:
 
 ### Backend
 
+Windows:
+
 ```powershell
 cd backend
 .\venv\Scripts\python.exe main.py
 ```
 
+Linux/macOS:
+
+```bash
+cd backend
+venv/bin/python main.py
+```
+
 ### Frontend
 
-```powershell
+```bash
 cd frontend
 npm run dev
 ```
 
 ### Promptfoo Viewer
 
-Use the startup script unless you specifically need to run components manually.
+Use the startup script on Windows unless you specifically need to run components manually. On Linux/macOS, run the viewer manually after frontend dependencies are installed.
 
 ## Evaluator Workflows
 
@@ -196,24 +236,73 @@ Use the startup script unless you specifically need to run components manually.
 
 ## Development
 
-### Frontend build
+### Backend bootstrap
+
+Cross-platform:
+
+```bash
+python -m venv backend/venv
+backend/venv/bin/python -m pip install --upgrade pip
+backend/venv/bin/python -m pip install -r backend/requirements-dev.txt
+```
+
+Windows equivalent:
+
+```powershell
+py -3.13 -m venv backend\venv
+backend\venv\Scripts\python.exe -m pip install --upgrade pip
+backend\venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
+```
+
+### Standard developer commands
+
+From the repo root:
+
+```bash
+make test-backend
+make frontend-install
+make build-frontend
+make lint-frontend
+make ci
+```
+
+Notes:
+
+- `make test-backend` creates `backend/venv` if needed and runs `pytest -q` from `backend/`
+- backend pytest uses `backend/pytest.ini` to keep temp files repo-local and avoid cache permission issues in containers
+- Docker integration tests skip automatically when the Docker daemon is unavailable
+
+### Direct commands
+
+Focused backend tests:
+
+```powershell
+cd backend
+.\venv\Scripts\python.exe -m pytest tests\test_promptfoo_eval_integration.py -q
+```
+
+Frontend build:
 
 ```powershell
 cd frontend
-npm run build
+cmd /c npm run build
 ```
 
-### Backend compile check
+Frontend lint:
 
 ```powershell
-backend\venv\Scripts\python.exe -m compileall backend pyrit-eval
+cd frontend
+cmd /c npm run lint
 ```
 
-### Focused backend tests
+## Continuous Integration
 
-```powershell
-backend\venv\Scripts\python.exe -m pytest backend\tests\test_promptfoo_eval_integration.py -q -p no:cacheprovider
-```
+GitHub Actions runs:
+
+- backend bootstrap plus `make test-backend` on Ubuntu
+- frontend install, build, and lint on Ubuntu
+
+Workflow path: `.github/workflows/ci.yml`
 
 ## Repository Layout
 
@@ -222,10 +311,11 @@ aegis-forge/
 |-- backend/            FastAPI app, models, policies, monitors, tests
 |-- frontend/           Next.js dashboard
 |-- promptfoo-eval/     Promptfoo assets and generated eval outputs
-|-- garak-eval/         Garak image assets and reports
-|-- pyrit-eval/         PyRIT image assets and runtime wrapper
+|-- garak-eval/         Garak runtime wrapper and local reports
+|-- pyrit-eval/         PyRIT runtime wrapper and local reports
 |-- docs/               Design and implementation specs
-|-- startup.ps1         One-command local startup
+|-- Makefile            Linux/macOS and CI developer workflows
+|-- startup.ps1         Windows-first local startup
 |-- STARTUP.md          Startup reference
 ```
 

@@ -10,6 +10,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 venv/
+.venv/
+.venv313/
 .pytest_cache/
 .coverage
 htmlcov/
@@ -47,7 +49,9 @@ backend/*.log
 
 # Eval artifacts
 .tmp/
+pytest-tmp/
 pytest-cache-files-*/
+backend/tests/_tmp/
 promptfoo-eval/report-*.json
 promptfoo-eval/promptfooconfig-*.yaml
 garak-eval/report-*.report.jsonl

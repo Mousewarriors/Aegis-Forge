@@ -1,60 +1,106 @@
-## Aegis Forge: Quick Start Guide
+## Aegis Forge Startup Guide
 
-This is the authoritative guide for starting the Aegis Forge environment.
+This is the reference guide for bootstrapping and starting Aegis Forge.
 
-### Automated Startup (Recommended)
+## Support Summary
+
+- Windows: full local stack support through `startup.ps1`
+- Linux/macOS: supported for backend bootstrap, backend tests, frontend build/lint, and CI-style validation
+
+## Windows Startup
+
 From the repo root:
 
 ```powershell
 .\startup.ps1
 ```
 
-From inside `ai-pentest-researcher\aegis-forge`:
+If `backend\venv` does not exist yet:
 
 ```powershell
+py -3.13 -m venv backend\venv
+backend\venv\Scripts\python.exe -m pip install --upgrade pip
+backend\venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
+cd frontend
+cmd /c npm ci
+cd ..
 .\startup.ps1
 ```
 
-## Manual Startup
+## Linux/macOS Bootstrap
 
-### 1. Prerequisites
-- Docker Desktop must be running. WSL2 is required for SysWatch eBPF monitoring.
-- Pull the bpftrace image once:
+This path is intended for local validation and CI-style workflows.
 
-```powershell
-docker pull quay.io/iovisor/bpftrace:latest
+```bash
+python3.13 -m venv backend/venv
+backend/venv/bin/python -m pip install --upgrade pip
+backend/venv/bin/python -m pip install -r backend/requirements-dev.txt
+cd frontend
+npm ci
+cd ..
+make test-backend
+make build-frontend
+make lint-frontend
 ```
 
-- Ollama must be running locally with `llama3.1:8b` available.
-- Node.js 20+ must be installed on the host.
+## Manual Service Startup
 
-### 2. Start the Backend
+### Backend
+
+Windows:
 
 ```powershell
-cd d:\Agent-Container-Pentester\ai-pentest-researcher\aegis-forge\backend
+cd backend
 .\venv\Scripts\python.exe main.py
 ```
 
-The backend auto-detects whether it is running on Windows or Linux and adjusts SysWatch monitoring accordingly.
+Linux/macOS:
 
-### 3. Start the Frontend
+```bash
+cd backend
+venv/bin/python main.py
+```
 
-```powershell
-cd d:\Agent-Container-Pentester\ai-pentest-researcher\aegis-forge\frontend
+### Frontend
+
+```bash
+cd frontend
 npm run dev
 ```
 
-### 4. Promptfoo Red Team Evaluations
-Once the backend and frontend are running:
+### Promptfoo Viewer
 
-1. Open the Eval Matrix page in the UI.
-2. Click `Launch Eval`.
-3. The backend runs `promptfoo redteam run` locally against your Ollama instance.
-4. You can toggle Agent Hardening mid-scan to update the agent system prompt during the run.
+Windows automated startup is still the easiest path. On Linux/macOS, run the viewer manually after frontend dependencies are installed.
 
-### 5. Service URLs
+## Service URLs
+
 - App: `http://localhost:3000`
 - Backend API: `http://localhost:8000`
-- Ollama: `http://localhost:11434`
 - Promptfoo UI: `http://localhost:15500`
+- Ollama: `http://localhost:11434`
 - API docs: `http://localhost:8000/docs`
+
+## Validation Commands
+
+From the repo root:
+
+```bash
+make test-backend
+make frontend-install
+make build-frontend
+make lint-frontend
+```
+
+Direct backend test command:
+
+```bash
+cd backend
+venv/bin/python -m pytest -q
+```
+
+Direct frontend build command:
+
+```bash
+cd frontend
+npm run build
+```

@@ -271,6 +271,10 @@ Write-Step "Starting Backend Service (Port 8000)..."
 $managedServicePids = @()
 if (-not (Test-Path $backendPython)) {
     Write-Host "Backend virtualenv not found at $backendPython" -ForegroundColor Red
+    Write-Host "Bootstrap it with:" -ForegroundColor Yellow
+    Write-Host "  py -3.13 -m venv backend\\venv" -ForegroundColor Gray
+    Write-Host "  backend\\venv\\Scripts\\python.exe -m pip install --upgrade pip" -ForegroundColor Gray
+    Write-Host "  backend\\venv\\Scripts\\python.exe -m pip install -r backend\\requirements-dev.txt" -ForegroundColor Gray
 } else {
     $backendProc = Start-ServiceWindow -WorkingDirectory $backendDir -Command "& '$backendPython' main.py"
     if ($backendProc) {
@@ -280,6 +284,9 @@ if (-not (Test-Path $backendPython)) {
 }
 
 Write-Step "Starting Frontend App (Port 3000)..."
+if (-not (Test-Path (Join-Path $frontendDir "node_modules"))) {
+    Write-Host "Frontend dependencies not found. Run 'cd frontend; cmd /c npm ci' before startup." -ForegroundColor Yellow
+}
 $frontendProc = Start-ServiceWindow -WorkingDirectory $frontendDir -Command "npm run dev"
 if ($frontendProc) {
     $managedServicePids += [int]$frontendProc.Id
